@@ -131,7 +131,11 @@ function windClass(L) {
       m.off('moveend zoomend resize', this._reset, this);
       this._canvas.remove();
     },
-    setField(f) { this._f = f; if (this._map) this._reset(); },
+    setField(f, anim) {
+      if (f === this._f && anim === this._anim) return;
+      this._f = f; this._anim = anim;
+      if (this._map) this._reset();
+    },
     _stop() {
       if (this._raf) cancelAnimationFrame(this._raf);
       this._raf = null;
@@ -158,7 +162,7 @@ function windClass(L) {
         grid[o] = w[0] * K; grid[o + 1] = -w[1] * K; grid[o + 2] = Math.hypot(w[0], w[1]);
       }
       this._g = { grid, cols, rows, C };
-      if (matchMedia('(prefers-reduced-motion: reduce)').matches) { this._static(); return; }
+      if (!this._anim) { this._static(); return; }
       const n = Math.min(2000, Math.round((size.x * size.y) / 400));
       this._p = Array.from({ length: n }, () => this._spawn({}));
       this._loop();
@@ -231,12 +235,12 @@ function sample(f, lat, lon) {
   return null;
 }
 
-function syncWind(L, wind) {
+function syncWind(L, wind, anim) {
   if (!wind) { if (windLayer && map.hasLayer(windLayer)) map.removeLayer(windLayer); return; }
   if (!WindLayer) WindLayer = windClass(L);
   if (!windLayer) windLayer = new WindLayer();
   if (!map.hasLayer(windLayer)) windLayer.addTo(map);
-  windLayer.setField(wind);
+  windLayer.setField(wind, anim);
 }
 
 function update(L, data) {
@@ -274,7 +278,7 @@ function update(L, data) {
   add(layers.sites, data.sites, [30, 30], 'pin-wrap');
   add(layers.stations, data.stations, [46, 22], 'stn-wrap');
   syncStations();
-  syncWind(L, data.wind);
+  syncWind(L, data.wind, data.windAnim);
   // Opened from a site page: centre on that site (or point) once and open its popup.
   const f = data.focus;
   if (f && f.key !== focusKey) {

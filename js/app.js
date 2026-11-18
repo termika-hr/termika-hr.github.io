@@ -500,6 +500,7 @@ function mapView() {
       <button type="button" class="tog" data-maplayer="thermals" aria-pressed="${o.thermals}">${t().mapThermals}</button>
       <button type="button" class="tog" data-maplayer="stations" aria-pressed="${o.stations}">${t().mapStations}</button>
       <button type="button" class="tog" data-maplayer="wind" aria-pressed="${o.wind}">${t().mapWind}</button>
+      ${o.wind ? `<button type="button" class="tog" data-act="wind-anim" aria-pressed="${windAnimOn()}">${t().mapWindAnim}</button>` : ''}
       ${o.wind ? `<label class="sel-wrap"><span class="sr">${t().mapWindLevel}</span><select id="map-wlevel" class="input">${M.WIND_LEVELS.map((l) => `<option value="${l}"${o.windLevel === l ? ' selected' : ''}>${t().windLevels[l]}</option>`).join('')}</select></label>` : ''}
       <div class="seg" role="group"><button type="button" data-mapbase="topo" aria-pressed="${o.base === 'topo'}">${t().mapTerrain}</button><button type="button" data-mapbase="osm" aria-pressed="${o.base === 'osm'}">${t().mapStreet}</button></div>
     </div>`;
@@ -513,6 +514,12 @@ function mapView() {
 }
 
 // ---------- wind streamlines ----------
+// Animated by default. Phones with "reduce motion" or a battery saver that removes animations
+// get still arrows until the pilot turns animation on; the choice is remembered.
+function windAnimOn() {
+  if (typeof S.mapOpts.windAnim === 'boolean') return S.mapOpts.windAnim;
+  return !matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
 // GitHub prepares the wind field a few times a day (tools/wind.py: ICON 0.25° for the whole
 // area; tools/aladin_si.py: ALADIN-SI ~9 km over the north) as static files, so streamlines
 // cost no forecast requests. Only when those files are missing or older than 8 hours does
@@ -662,6 +669,7 @@ function mapData() {
     focus: mapFocus(route()),
     kk7: S.mapOpts.thermals && ref ? kk7Layer(ref.date, hour, ref.sunrise) : null,
     wind: ref ? windField(ref.date, hour) : null,
+    windAnim: windAnimOn(),
     failText: t().mapFail,
     zoomHint: t().mapZoomHint, zoomBtn: t().mapZoomBtn,
     onAction: handleClick, // Leaflet stops clicks inside popups from reaching the document
@@ -1153,7 +1161,8 @@ async function handleClick(b) {
     evt.prompt();
     try { await evt.userChoice; } catch (err) { /* dismissed */ }
     render();
-  } else if (act === 'limit-hide') { S.limitHidden = true; render(); }
+  } else if (act === 'wind-anim') { S.mapOpts.windAnim = !windAnimOn(); store.set('mapOpts', S.mapOpts); render(); }
+  else if (act === 'limit-hide') { S.limitHidden = true; render(); }
   else if (act === 'install-how') openInstallHelp();
   else if (act === 'install-hide') { store.set('installHide', Date.now() + 30 * 24 * 3600e3); render(); }
   else if (act === 'share') openShare({ url: APP_URL, title: t().share, hint: t().shareText, text: t().shareMsg, qr: true });
