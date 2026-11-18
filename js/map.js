@@ -5,6 +5,7 @@ const LEAFLET = 'https://unpkg.com/leaflet@1.9.4/dist/';
 let loading = null;
 let map = null, el = null, current = null, fitted = false;
 let baseKey = null, kk7Key = null, focusKey = null, airKey = null;
+let pointPop = null; // the open "forecast for this point" popup, refreshed when its content changes (e.g. airspace loaded)
 const siteMarkers = {};
 const base = {};
 const layers = {};
@@ -81,7 +82,7 @@ export async function showMap(slot, data) {
     });
     map.on('click', (e) => {
       if (!current) return;
-      L.popup().setLatLng(e.latlng).setContent(current.pointPopup(e.latlng.lat, e.latlng.lng)).openOn(map);
+      openPoint(e.latlng.lat, e.latlng.lng);
     });
   } else if (el.parentNode !== slot) {
     slot.appendChild(el);
@@ -266,6 +267,12 @@ function syncWind(L, wind, anim) {
   windLayer.setField(wind, anim);
 }
 
+function openPoint(lat, lon) {
+  const html = current.pointPopup(lat, lon);
+  pointPop = window.L.popup().setLatLng([lat, lon]).setContent(html).openOn(map);
+  pointPop._t = { lat, lon, html };
+}
+
 function update(L, data) {
   if (baseKey !== data.base) {
     if (baseKey) map.removeLayer(base[baseKey]);
@@ -303,13 +310,17 @@ function update(L, data) {
   syncStations();
   syncWind(L, data.wind, data.windAnim);
   syncAirspace(L, data.airspace);
+  if (pointPop && map.hasLayer(pointPop)) {
+    const html = data.pointPopup(pointPop._t.lat, pointPop._t.lon);
+    if (html !== pointPop._t.html) { pointPop._t.html = html; pointPop.setContent(html); }
+  }
   // Opened from a site page: centre on that site (or point) once and open its popup.
   const f = data.focus;
   if (f && f.key !== focusKey) {
     map.invalidateSize();
     map.setView([f.lat, f.lon], Math.max(map.getZoom(), 13));
     if (f.id && siteMarkers[f.id]) siteMarkers[f.id].openPopup();
-    else L.popup().setLatLng([f.lat, f.lon]).setContent(data.pointPopup(f.lat, f.lon)).openOn(map);
+    else openPoint(f.lat, f.lon);
     fitted = true;
   }
   focusKey = f ? f.key : null;
