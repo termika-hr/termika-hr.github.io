@@ -6,7 +6,7 @@ non-commercial. The Core API needs a free API key, read from the OPENAIP_API_KEY
 variable (a GitHub Actions secret). Without a key, or if the request fails, the previous file
 is kept.
 
-Only airspace that matters below about 4500 m is kept (CTR, TMA, restricted, danger,
+Only airspace that starts below about 3000 m is kept (CTR, TMA, restricted, danger,
 prohibited, TMZ/RMZ, TRA/TSA, ATZ, gliding and sporting areas...), with coordinates rounded to
 4 decimals to keep the file small.
 
@@ -19,13 +19,16 @@ ROOT = Path(__file__).resolve().parent.parent
 API = 'https://api.core.openaip.net/api/airspaces'
 UA = 'termika-airspace/1.0 (+https://termika-hr.github.io/)'
 BBOX = (13.2, 42.3, 19.5, 46.6)   # lon/lat: Croatia plus a little of its neighbours
-VERSION = 2                       # bump to rebuild the file regardless of its age
+VERSION = 3                       # bump to rebuild the file regardless of its age
 TOL = 0.0004                      # outline simplification, degrees (about 30-45 m)
 # openAIP type codes worth showing to paragliders, with a short label.
 TYPES = {1: 'R', 2: 'D', 3: 'P', 4: 'CTR', 5: 'TMZ', 6: 'RMZ', 7: 'TMA', 8: 'TRA', 9: 'TSA', 13: 'ATZ',
          14: 'MATZ', 17: 'Alert', 18: 'Warning', 21: 'Gliding', 26: 'CTA', 28: 'Sport', 29: 'LOR', 36: 'MCTR'}
 CLASSES = {0: 'A', 1: 'B', 2: 'C', 3: 'D', 4: 'E', 5: 'F', 6: 'G'}
-MAX_LOWER_M = 4500
+MAX_LOWER_M = 3000
+# Areas that are active only when booked through AMC or announced by NOTAM (in Croatia the
+# LDD/LDTR/LDTS grid used for reservations, among others).
+COND_TYPES = {'D', 'TRA', 'TSA'}
 
 def limit(l):
     """openAIP limit -> (label, metres above sea level or None for GND-based)."""
@@ -144,15 +147,31 @@ def main():
         g = it.get('geometry')
         if t not in TYPES or not g or g.get('type') not in ('Polygon', 'MultiPolygon') or not in_area(g['coordinates']): continue
         lo, lo_m = limit(it.get('lowerLimit'))
-        hi, _ = limit(it.get('upperLimit'))
+        hi, hi_m = limit(it.get('upperLimit'))
         if lo_m is not None and lo_m > MAX_LOWER_M: continue
         feats.append({'type': 'Feature', 'geometry': {'type': g['type'], 'coordinates': rnd(g['coordinates'])},
-                      'properties': {'name': it.get('name', ''), 'type': TYPES[t], 'cls': CLASSES.get(it.get('icaoClass')),
+                      'properties': {'name': it.get('name', ''), 'type': TYPES[t], 'types': [TYPES[t]], 'cls': CLASSES.get(it.get('icaoClass')),
                                      'lower': lo, 'upper': hi, 'lowerM': None if lo_m is None else round(lo_m),
+                                     'upperM': None if hi_m is None else round(hi_m),
                                      'country': it.get('country'),
                                      # Active only when booked or announced (AMC reservation, NOTAM).
-                                     'cond': bool(it.get('byNotam') or it.get('onRequest') or it.get('onDemand')),
-                                     'act': it.get('activity')}})
+                                     'cond': TYPES[t] in COND_TYPES or bool(it.get('byNotam') or it.get('onRequest') or it.get('onDemand')),
+                                     }})
+    # The same square is often published three times (D, TRA, TSA): merge those into one.
+    merged = {}
+    for f in feats:
+        k = (json.dumps(f['geometry']['coordinates']), f['properties']['lower'], f['properties']['upper'])
+        if k in merged:
+            p, q = merged[k]['properties'], f['properties']
+            if q['type'] not in p['types']: p['types'].append(q['type'])
+            if q['name'] not in p['name'].split(' / '): p['name'] += ' / ' + q['name']
+            p['cond'] = p['cond'] and q['cond']
+        else:
+            merged[k] = f
+    feats = list(merged.values())
+    for f in feats:
+        p = f['properties']; p['type'] = p['types'][0]
+        if len(p['types']) == 1: del p['types']
     feats.sort(key=lambda f: (f['properties']['lowerM'] or 0), reverse=True)  # high first, so low zones draw on top
     doc = {'type': 'FeatureCollection', 'source': 'openAIP (CC BY-NC 4.0)', 'v': VERSION,
            'generated': dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%MZ'), 'features': feats}
@@ -161,7 +180,7 @@ def main():
     import collections
     print(f'airspace: {len(feats)} areas -> {out} ({out.stat().st_size // 1024} kB)', file=sys.stderr)
     print('  conditional:', collections.Counter((f['properties']['type'], f['properties']['cond']) for f in feats).most_common(), file=sys.stderr)
-    print('  activity:', collections.Counter(f['properties']['act'] for f in feats).most_common(), file=sys.stderr)
+
 
 if __name__ == '__main__':
     main()

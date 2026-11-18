@@ -489,6 +489,9 @@ dialog::backdrop { background: rgba(8, 14, 20, 0.55); }
 .air-badge { flex: none; border: 2px solid; border-radius: 6px; padding: 1px 6px; font: 700 0.78rem/1.3 var(--f-display); letter-spacing: 0.04em; min-width: 44px; text-align: center; }
 .pop .air-list { max-height: 180px; overflow: auto; }
 .pop .air-list b { font-size: 0.9rem; }
+.air-list small { display: block; }
+.air-list .air-cond { font-style: italic; }
+.air-list li.cond .air-badge { border-style: dashed; }
 .wind-sw { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; }
 .stn svg path { fill: var(--sky); }
 

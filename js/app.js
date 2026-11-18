@@ -279,9 +279,16 @@ async function loadAirspace() {
   } catch (e) { S.airspace = 'none'; }
   render();
 }
+// Areas active only when booked (AMC) or announced (NOTAM) are drawn only on request.
+let airView = null;
 function airData() {
   if (!S.airspace) { loadAirspace(); return null; }
-  return S.airspace.features ? S.airspace : null;
+  if (!S.airspace.features) return null;
+  const all = !!S.mapOpts.airAll, key = `${S.airspace.generated}|${all}`;
+  if (!airView || airView.key !== key) {
+    airView = { type: 'FeatureCollection', key, features: S.airspace.features.filter((f) => all || !f.properties.cond) };
+  }
+  return airView;
 }
 // Ray casting on the outer ring minus holes.
 function inRing(ring, x, y) {
@@ -300,10 +307,14 @@ function airAt(lat, lon) {
     return g.type === 'Polygon' ? inPolygon(g.coordinates, lon, lat) : g.coordinates.some((p) => inPolygon(p, lon, lat));
   }).sort((a, b) => (a.properties.lowerM ?? 0) - (b.properties.lowerM ?? 0));
 }
-function limitText(label, m) { return m != null && m > 0 && !/^FL/.test(label) ? `${label} (${m50(m)} m)` : /^FL/.test(label) && m ? `${label} (≈ ${m50(m)} m)` : label; }
+function limitText(label, m) {
+  if (m == null || m <= 0) return esc(label);
+  return `${esc(label)} (${/^FL/.test(label) ? '≈ ' : ''}${m50(m)} m${/AGL/.test(label) ? ` ${t().airAgl}` : ''})`;
+}
 function airRow(f) {
   const p = f.properties, c = AIR_COLORS[p.type] || '#64748b';
-  return `<li><span class="air-badge" style="border-color:${c};color:${c}">${esc(p.type)}${p.cls ? ' ' + p.cls : ''}</span><span><b>${esc(p.name)}</b><small>${limitText(p.lower, p.lowerM)} – ${esc(p.upper)}</small></span></li>`;
+  const badge = (p.types || [p.type]).join('/');
+  return `<li${p.cond ? ' class="cond"' : ''}><span class="air-badge" style="border-color:${c};color:${c}">${esc(badge)}${p.cls ? ' ' + p.cls : ''}</span><span><b>${esc(p.name)}</b><small>${limitText(p.lower, p.lowerM)} – ${limitText(p.upper, p.upperM)}</small>${p.cond ? `<small class="air-cond">${t().airCond}</small>` : ''}</span></li>`;
 }
 function airList(lat, lon, compact) {
   if (!S.airspace || !S.airspace.features) return '';
@@ -312,7 +323,7 @@ function airList(lat, lon, compact) {
   return `${compact ? `<span class="dim">${t().airHere}</span>` : ''}<ul class="air-list">${list.map(airRow).join('')}</ul>`;
 }
 function airLegend() {
-  const kinds = [['CTR', 'CTR'], ['TMA', 'TMA'], ['R', 'R / P'], ['D', 'D'], ['TMZ', 'TMZ / RMZ'], ['TRA', 'TRA / TSA']];
+  const kinds = [['CTR', 'CTR / ATZ'], ['TMA', 'TMA'], ['R', 'R / P'], ['TMZ', 'TMZ / RMZ'], ...(S.mapOpts.airAll ? [['D', 'D'], ['TRA', 'TRA / TSA']] : [])];
   const state = S.airspace === 'none' ? `<span class="v-warn">${t().airMissing}</span>` : !S.airspace || S.airspace === 'loading' ? `<span>${t().loading}</span>` : '';
   return `<div class="legend"><span><b>${t().mapAir}</b></span>${kinds.map(([k, l]) => `<span><i class="air-sw" style="border-color:${AIR_COLORS[k]};background:${AIR_COLORS[k]}22"></i>${l}</span>`).join('')}${state}</div>
     <p class="hint">${t().airNote}</p>`;
@@ -568,6 +579,7 @@ function mapView() {
       <button type="button" class="tog" data-maplayer="wind" aria-pressed="${o.wind}">${t().mapWind}</button>
       ${o.wind ? `<button type="button" class="tog" data-act="wind-anim" aria-pressed="${windAnimOn()}">${t().mapWindAnim}</button>` : ''}
       <button type="button" class="tog" data-maplayer="airspace" aria-pressed="${o.airspace}">${t().mapAir}</button>
+      ${o.airspace ? `<button type="button" class="tog" data-act="air-all" aria-pressed="${!!o.airAll}">${t().airAll}</button>` : ''}
       ${o.wind ? `<label class="sel-wrap"><span class="sr">${t().mapWindLevel}</span><select id="map-wlevel" class="input">${M.WIND_LEVELS.map((l) => `<option value="${l}"${o.windLevel === l ? ' selected' : ''}>${t().windLevels[l]}</option>`).join('')}</select></label>` : ''}
       <div class="seg" role="group"><button type="button" data-mapbase="topo" aria-pressed="${o.base === 'topo'}">${t().mapTerrain}</button><button type="button" data-mapbase="osm" aria-pressed="${o.base === 'osm'}">${t().mapStreet}</button></div>
     </div>`;
@@ -1230,7 +1242,8 @@ async function handleClick(b) {
     evt.prompt();
     try { await evt.userChoice; } catch (err) { /* dismissed */ }
     render();
-  } else if (act === 'wind-anim') { S.mapOpts.windAnim = !windAnimOn(); store.set('mapOpts', S.mapOpts); render(); }
+  } else if (act === 'air-all') { S.mapOpts.airAll = !S.mapOpts.airAll; store.set('mapOpts', S.mapOpts); render(); }
+  else if (act === 'wind-anim') { S.mapOpts.windAnim = !windAnimOn(); store.set('mapOpts', S.mapOpts); render(); }
   else if (act === 'limit-hide') { S.limitHidden = true; render(); }
   else if (act === 'install-how') openInstallHelp();
   else if (act === 'install-hide') { store.set('installHide', Date.now() + 30 * 24 * 3600e3); render(); }

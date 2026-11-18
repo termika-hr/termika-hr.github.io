@@ -242,7 +242,7 @@ export const AIR_COLORS = { CTR: '#dc2626', MCTR: '#dc2626', ATZ: '#dc2626', MAT
   R: '#c026d3', P: '#c026d3', D: '#ea580c', TMZ: '#475569', RMZ: '#475569', TRA: '#7c3aed', TSA: '#7c3aed',
   Gliding: '#16a34a', Sport: '#16a34a' };
 function syncAirspace(L, air) {
-  const key = air ? air.generated : null;
+  const key = air ? air.key : null;
   if (key === airKey) return;
   if (layers.air) { map.removeLayer(layers.air); layers.air = null; }
   airKey = key;
@@ -251,8 +251,9 @@ function syncAirspace(L, air) {
   layers.air = L.geoJSON(air, {
     pane: 'air', interactive: false,
     style: (f) => {
-      const t = f.properties.type, c = AIR_COLORS[t] || '#64748b';
-      return { color: c, weight: 1.6, opacity: 0.9, fillColor: c, fillOpacity: 0.07, dashArray: t === 'TMZ' || t === 'RMZ' || t === 'D' ? '6 4' : null };
+      const p = f.properties, c = AIR_COLORS[p.type] || '#64748b';
+      if (p.cond) return { color: c, weight: 1.2, opacity: 0.75, fillColor: c, fillOpacity: 0.025, dashArray: '5 5' };
+      return { color: c, weight: 1.6, opacity: 0.9, fillColor: c, fillOpacity: 0.07, dashArray: p.type === 'TMZ' || p.type === 'RMZ' ? '6 4' : null };
     },
   }).addTo(map);
 }
