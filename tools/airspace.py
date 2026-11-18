@@ -47,12 +47,35 @@ def rnd(coords):
     if isinstance(coords[0], (int, float)): return [round(coords[0], 4), round(coords[1], 4)]
     return [rnd(c) for c in coords]
 
+KEY_IN_QUERY = False   # set when the API accepts the key only as ?apiKey=
+
+def request(key, params):
+    q = dict(params)
+    headers = {'User-Agent': UA, 'Accept': 'application/json'}
+    if KEY_IN_QUERY: q['apiKey'] = key
+    else: headers['x-openaip-api-key'] = key
+    req = urllib.request.Request(f'{API}?{urllib.parse.urlencode(q)}', headers=headers)
+    return json.loads(urllib.request.urlopen(req, timeout=120).read())
+
+def check_key(key):
+    """Try the header, then the query parameter; explain a refusal without printing the key."""
+    global KEY_IN_QUERY
+    shape = f"{len(key)} chars, {'hex' if all(c in '0123456789abcdef' for c in key.lower()) else 'not hex'}"
+    for in_query in (False, True):
+        KEY_IN_QUERY = in_query
+        try:
+            request(key, {'limit': 1, 'country': 'HR'})
+            print(f"openAIP key OK ({'apiKey query' if in_query else 'header'}; key {shape})", file=sys.stderr)
+            return
+        except urllib.error.HTTPError as e:
+            body = e.read()[:300].decode('utf-8', 'replace').replace(key, '***').replace('\n', ' ')
+            print(f"openAIP {'apiKey query' if in_query else 'header'}: HTTP {e.code}: {body}", file=sys.stderr)
+    raise SystemExit(f'openAIP refused the API key (key {shape})')
+
 def fetch_all(key, params):
     items, page = [], 1
     while True:
-        q = urllib.parse.urlencode({**params, 'page': page})
-        req = urllib.request.Request(f'{API}?{q}', headers={'User-Agent': UA, 'x-openaip-api-key': key, 'Accept': 'application/json'})
-        data = json.loads(urllib.request.urlopen(req, timeout=120).read())
+        data = request(key, {**params, 'page': page})
         items += data.get('items', [])
         if page >= data.get('totalPages', 1) or page >= 50: return items
         page += 1
@@ -90,6 +113,7 @@ def main():
                 return
         except (ValueError, KeyError):
             pass
+    check_key(key)
     feats = []
     for it in fetch(key):
         t = it.get('type')
