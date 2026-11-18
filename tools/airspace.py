@@ -12,14 +12,14 @@ prohibited, TMZ/RMZ, TRA/TSA, ATZ, gliding and sporting areas...), with coordina
 
 Usage: OPENAIP_API_KEY=... python3 tools/airspace.py [--max-age-hours 20] [--out data/airspace.json]
 """
-import argparse, datetime as dt, json, os, sys, urllib.error, urllib.parse, urllib.request
+import argparse, datetime as dt, json, os, re, sys, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 API = 'https://api.core.openaip.net/api/airspaces'
 UA = 'termika-airspace/1.0 (+https://termika-hr.github.io/)'
 BBOX = (13.2, 42.3, 19.5, 46.6)   # lon/lat: Croatia plus a little of its neighbours
-VERSION = 3                       # bump to rebuild the file regardless of its age
+VERSION = 4                       # bump to rebuild the file regardless of its age
 TOL = 0.0004                      # outline simplification, degrees (about 30-45 m)
 # openAIP type codes worth showing to paragliders, with a short label.
 TYPES = {1: 'R', 2: 'D', 3: 'P', 4: 'CTR', 5: 'TMZ', 6: 'RMZ', 7: 'TMA', 8: 'TRA', 9: 'TSA', 13: 'ATZ',
@@ -158,9 +158,13 @@ def main():
                                      'cond': TYPES[t] in COND_TYPES or bool(it.get('byNotam') or it.get('onRequest') or it.get('onDemand')),
                                      }})
     # The same square is often published three times (D, TRA, TSA): merge those into one.
+    # Croatia's booking grid (LD-D187, LDTR187, LDTS187) is matched by its number, as the
+    # three outlines differ slightly.
     merged = {}
     for f in feats:
-        k = (json.dumps(f['geometry']['coordinates']), f['properties']['lower'], f['properties']['upper'])
+        g = re.fullmatch(r'(?:LD-?D|LDTR|LDTS)\s*-?(\d+)', f['properties']['name'].strip())
+        k = ('grid', g.group(1)) if g else json.dumps(f['geometry']['coordinates'])
+        k = (k, f['properties']['lower'], f['properties']['upper'])
         if k in merged:
             p, q = merged[k]['properties'], f['properties']
             if q['type'] not in p['types']: p['types'].append(q['type'])

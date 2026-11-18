@@ -491,6 +491,7 @@ dialog::backdrop { background: rgba(8, 14, 20, 0.55); }
 .pop .air-list b { font-size: 0.9rem; }
 .air-list small { display: block; }
 .air-list .air-cond { font-style: italic; }
+.pop .air-more { font-size: 0.82rem; }
 .air-list li.cond .air-badge { border-style: dashed; }
 .wind-sw { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; }
 .stn svg path { fill: var(--sky); }

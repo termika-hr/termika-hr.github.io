@@ -305,7 +305,7 @@ function airAt(lat, lon) {
   return S.airspace.features.filter((f) => {
     const g = f.geometry;
     return g.type === 'Polygon' ? inPolygon(g.coordinates, lon, lat) : g.coordinates.some((p) => inPolygon(p, lon, lat));
-  }).sort((a, b) => (a.properties.lowerM ?? 0) - (b.properties.lowerM ?? 0));
+  }).sort((a, b) => (a.properties.cond - b.properties.cond) || (a.properties.lowerM ?? 0) - (b.properties.lowerM ?? 0));
 }
 function limitText(label, m) {
   if (m == null || m <= 0) return esc(label);
@@ -316,11 +316,16 @@ function airRow(f) {
   const badge = (p.types || [p.type]).join('/');
   return `<li${p.cond ? ' class="cond"' : ''}><span class="air-badge" style="border-color:${c};color:${c}">${esc(badge)}${p.cls ? ' ' + p.cls : ''}</span><span><b>${esc(p.name)}</b><small>${limitText(p.lower, p.lowerM)} – ${limitText(p.upper, p.upperM)}</small>${p.cond ? `<small class="air-cond">${t().airCond}</small>` : ''}</span></li>`;
 }
+// compact (map popup): bookable areas are summed up in one line unless they are shown on the map.
 function airList(lat, lon, compact) {
   if (!S.airspace || !S.airspace.features) return '';
-  const list = airAt(lat, lon);
-  if (!list.length) return `<span class="dim">${t().airNone}</span>`;
-  return `${compact ? `<span class="dim">${t().airHere}</span>` : ''}<ul class="air-list">${list.map(airRow).join('')}</ul>`;
+  const all = airAt(lat, lon);
+  if (!all.length) return `<span class="dim">${t().airNone}</span>`;
+  const brief = compact && !S.mapOpts.airAll;
+  const list = brief ? all.filter((f) => !f.properties.cond) : all;
+  const cond = all.filter((f) => f.properties.cond);
+  const more = brief && cond.length ? `<span class="dim air-more">${t().airMore(esc(cond.map((f) => f.properties.name.split(' / ')[0]).join(', ')))}</span>` : '';
+  return `${compact ? `<span class="dim">${t().airHere}</span>` : ''}${list.length ? `<ul class="air-list">${list.map(airRow).join('')}</ul>` : ''}${more}`;
 }
 function airLegend() {
   const kinds = [['CTR', 'CTR / ATZ'], ['TMA', 'TMA'], ['R', 'R / P'], ['TMZ', 'TMZ / RMZ'], ...(S.mapOpts.airAll ? [['D', 'D'], ['TRA', 'TRA / TSA']] : [])];
