@@ -18,7 +18,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 API = 'https://api.core.openaip.net/api/airspaces'
 UA = 'termika-airspace/1.0 (+https://termika-hr.github.io/)'
-BBOX = (12.8, 42.0, 19.8, 47.0)   # lon/lat around Croatia, with the borders of its neighbours
+BBOX = (13.2, 42.3, 19.5, 46.6)   # lon/lat: Croatia plus a little of its neighbours
+VERSION = 2                       # bump to rebuild the file regardless of its age
+TOL = 0.0004                      # outline simplification, degrees (about 30-45 m)
 # openAIP type codes worth showing to paragliders, with a short label.
 TYPES = {1: 'R', 2: 'D', 3: 'P', 4: 'CTR', 5: 'TMZ', 6: 'RMZ', 7: 'TMA', 8: 'TRA', 9: 'TSA', 13: 'ATZ',
          14: 'MATZ', 17: 'Alert', 18: 'Warning', 21: 'Gliding', 26: 'CTA', 28: 'Sport', 29: 'LOR', 36: 'MCTR'}
@@ -30,7 +32,8 @@ def limit(l):
     if not l: return '?', None
     v, unit, ref = l.get('value', 0), l.get('unit'), l.get('referenceDatum')
     if ref == 0 and v == 0: return 'GND', 0
-    if unit == 6 or ref == 2: return f'FL {int(v):03d}', v * 100 * 0.3048
+    if unit == 6: return f'FL {int(v):03d}', v * 100 * 0.3048
+    if ref == 2 and unit == 1: return f'FL {int(v) // 100:03d}', v * 0.3048
     ft = v if unit == 1 else v / 0.3048 if unit == 0 else v
     label = f"{int(round(ft))} ft {'AGL' if ref == 0 else 'MSL'}"
     return label, ft * 0.3048
@@ -43,8 +46,26 @@ def in_area(coords):
     xs, ys = zip(*((p[0], p[1]) for p in points(coords)))
     return min(xs) <= BBOX[2] and max(xs) >= BBOX[0] and min(ys) <= BBOX[3] and max(ys) >= BBOX[1]
 
+def simplify(ring):
+    """Douglas-Peucker on one ring, keeping at least 4 points."""
+    if len(ring) <= 5: return ring
+    keep = [False] * len(ring); keep[0] = keep[-1] = True
+    stack = [(0, len(ring) - 1)]
+    while stack:
+        a, b = stack.pop()
+        (x1, y1), (x2, y2) = ring[a][:2], ring[b][:2]
+        dx, dy = x2 - x1, y2 - y1; n = (dx * dx + dy * dy) ** 0.5 or 1e-12
+        best, idx = 0, None
+        for i in range(a + 1, b):
+            d = abs(dy * (ring[i][0] - x1) - dx * (ring[i][1] - y1)) / n if (dx or dy) else ((ring[i][0] - x1) ** 2 + (ring[i][1] - y1) ** 2) ** 0.5
+            if d > best: best, idx = d, i
+        if idx is not None and best > TOL:
+            keep[idx] = True; stack += [(a, idx), (idx, b)]
+    out = [p for p, k in zip(ring, keep) if k]
+    return out if len(out) >= 4 else ring
+
 def rnd(coords):
-    if isinstance(coords[0], (int, float)): return [round(coords[0], 4), round(coords[1], 4)]
+    if isinstance(coords[0][0], (int, float)): return [[round(p[0], 4), round(p[1], 4)] for p in simplify(coords)]
     return [rnd(c) for c in coords]
 
 KEY_IN_QUERY = False   # set when the API accepts the key only as ?apiKey=
@@ -109,8 +130,9 @@ def main():
     out = Path(args.out)
     if out.exists():
         try:
-            gen = dt.datetime.strptime(json.loads(out.read_text())['generated'], '%Y-%m-%dT%H:%MZ').replace(tzinfo=dt.timezone.utc)
-            if (dt.datetime.now(dt.timezone.utc) - gen).total_seconds() < args.max_age_hours * 3600:
+            old = json.loads(out.read_text())
+            gen = dt.datetime.strptime(old['generated'], '%Y-%m-%dT%H:%MZ').replace(tzinfo=dt.timezone.utc)
+            if old.get('v') == VERSION and (dt.datetime.now(dt.timezone.utc) - gen).total_seconds() < args.max_age_hours * 3600:
                 print('airspace file is recent; skipping', file=sys.stderr)
                 return
         except (ValueError, KeyError):
@@ -127,13 +149,19 @@ def main():
         feats.append({'type': 'Feature', 'geometry': {'type': g['type'], 'coordinates': rnd(g['coordinates'])},
                       'properties': {'name': it.get('name', ''), 'type': TYPES[t], 'cls': CLASSES.get(it.get('icaoClass')),
                                      'lower': lo, 'upper': hi, 'lowerM': None if lo_m is None else round(lo_m),
-                                     'country': it.get('country')}})
+                                     'country': it.get('country'),
+                                     # Active only when booked or announced (AMC reservation, NOTAM).
+                                     'cond': bool(it.get('byNotam') or it.get('onRequest') or it.get('onDemand')),
+                                     'act': it.get('activity')}})
     feats.sort(key=lambda f: (f['properties']['lowerM'] or 0), reverse=True)  # high first, so low zones draw on top
-    doc = {'type': 'FeatureCollection', 'source': 'openAIP (CC BY-NC 4.0)',
+    doc = {'type': 'FeatureCollection', 'source': 'openAIP (CC BY-NC 4.0)', 'v': VERSION,
            'generated': dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%MZ'), 'features': feats}
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(doc, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
-    print(f'airspace: {len(feats)} areas -> {out}', file=sys.stderr)
+    import collections
+    print(f'airspace: {len(feats)} areas -> {out} ({out.stat().st_size // 1024} kB)', file=sys.stderr)
+    print('  conditional:', collections.Counter((f['properties']['type'], f['properties']['cond']) for f in feats).most_common(), file=sys.stderr)
+    print('  activity:', collections.Counter(f['properties']['act'] for f in feats).most_common(), file=sys.stderr)
 
 if __name__ == '__main__':
     main()
