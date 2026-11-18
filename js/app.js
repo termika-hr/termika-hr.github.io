@@ -277,8 +277,47 @@ function matrix() {
     <div class="legend">${legend}<span class="num">11–15 = ${S.lang === 'hr' ? 'siguran prozor (sati)' : 'safe window (hours)'}</span><span class="num">1650 = ${S.lang === 'hr' ? 'vrh termike, m n.v.' : 'thermal top, m ASL'}</span></div>`;
 }
 
+// ---------- install + share ----------
+const APP_URL = 'https://pboric.github.io/termika/';
+let installEvt = null; // Chrome/Edge/Samsung: the deferred install prompt
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isMobile = () => isIOS() || /Android/i.test(navigator.userAgent);
+const IC_SHARE = '<svg class="inline-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4M5 11v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function installBanner() {
+  if (isStandalone() || Date.now() < store.get('installHide', 0)) return '';
+  let body;
+  if (installEvt) body = `<p>${t().instText}</p><button type="button" class="btn primary" data-act="install">${t().instBtn}</button>`;
+  else if (isIOS()) body = `<p>${t().instIOS(IC_SHARE)}</p>`;
+  else if (isMobile()) body = `<p>${t().instAndroid}</p>`;
+  else return '';
+  return `<section class="install" aria-label="${t().instTitle}">${IC.logo}${body}<button type="button" class="btn small" data-act="install-hide">${t().instLater}</button></section>`;
+}
+
+function shareHtml(msg = '', ok = true) {
+  return `<div class="dlg">
+    <div class="dlg-head"><h2 id="dlg-title">${t().share}</h2><button type="button" class="icon-btn" data-act="close" aria-label="${t().close}">${IC.close}</button></div>
+    <p class="hint" style="margin:0">${t().shareText}</p>
+    <img class="share-qr" src="icons/qr.svg" alt="QR: ${APP_URL}" width="200" height="200">
+    <p class="share-url" id="share-url">${APP_URL}</p>
+    <div class="btns">
+      ${navigator.share ? `<button type="button" class="btn primary" data-act="share-send">${t().shareSend}</button>` : ''}
+      <button type="button" class="btn" data-act="share-copy">${t().shareCopy}</button>
+    </div>
+    ${msg ? `<p class="${ok ? 'ok-msg' : 'err-msg'}" role="status">${msg}</p>` : ''}
+    <p class="hint" style="margin:0">${t().install}</p>
+  </div>`;
+}
+function openShare(msg, ok) {
+  form = null;
+  const d = $('#dlg');
+  d.innerHTML = shareHtml(msg, ok);
+  if (!d.open) d.showModal();
+}
+
 function overview() {
-  return bestBets() + matrix() + help();
+  return installBanner() + bestBets() + matrix() + help();
 }
 
 function pickHour(hours, sum) {
@@ -525,7 +564,7 @@ function help() {
 }
 
 function footer() {
-  return `<footer class="foot"><p class="disc">${t().disclaimer}</p><p>${t().attribution}</p><p>${t().install}</p></footer>`;
+  return `<footer class="foot"><p class="disc">${t().disclaimer}</p><p><button type="button" class="btn small" data-act="share">${t().share}</button></p><p>${t().attribution}</p><p>${t().install}</p></footer>`;
 }
 
 // ---------- settings dialog ----------
@@ -638,6 +677,24 @@ document.addEventListener('click', async (e) => {
     const r = route(); const s = r.site && findSite(r.site);
     if (s) loadDetail(s, true);
   } else if (act === 'settings') openSettings();
+  else if (act === 'install' && installEvt) {
+    const evt = installEvt;
+    installEvt = null;
+    evt.prompt();
+    try { await evt.userChoice; } catch (err) { /* dismissed */ }
+    render();
+  } else if (act === 'install-hide') { store.set('installHide', Date.now() + 30 * 24 * 3600e3); render(); }
+  else if (act === 'share') openShare();
+  else if (act === 'share-send') {
+    try { await navigator.share({ title: 'Termika', text: t().shareMsg, url: APP_URL }); } catch (err) { /* closed */ }
+  } else if (act === 'share-copy') {
+    try { await navigator.clipboard.writeText(APP_URL); openShare(t().copied, true); }
+    catch (err) {
+      openShare(t().copyFail, false);
+      const r = document.createRange(); r.selectNodeContents($('#share-url'));
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    }
+  }
   else if (act === 'close') { $('#dlg').close(); form = null; }
   else if (act === 'fav') {
     const id = route().site;
@@ -726,6 +783,9 @@ onRoute();
 loadOverview();
 loadAladin();
 setInterval(() => { if (document.visibilityState === 'visible' && S.ov && Date.now() - S.ov.t > TTL) loadOverview(); }, 60 * 1000);
+
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; render(); });
+window.addEventListener('appinstalled', () => { installEvt = null; render(); });
 
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
