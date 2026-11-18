@@ -23,10 +23,11 @@ export const MODELS = {
   gfs_seamless: { label: 'GFS', org: 'NOAA', res: '13–25 km', days: 7 },
 };
 
-// Limits per pilot level. Wind in km/h.
+// Limits per pilot level. Wind in km/h. `custom` is replaced by the user's own limits (Settings).
 export const PROFILES = {
   student: { wind: 15, gust: 25, spread: 15, air: 25 },
   pilot: { wind: 22, gust: 32, spread: 18, air: 35 },
+  custom: { wind: 18, gust: 28, spread: 15, air: 30 },
 };
 
 // Models fetched from Open-Meteo (all except locally prepared ones).
@@ -355,11 +356,11 @@ export function analyzeSite(parsed, site, profKey) {
         const s = scoreHour(h, a, site, prof, daylight);
         return { ...h, hour: m / 60, a, ...s, daylight };
       });
-    return { ...day, hours, summary: summarizeDay(hours) };
+    return { ...day, hours, summary: summarizeDay(hours, prof) };
   });
 }
 
-export function summarizeDay(hours) {
+export function summarizeDay(hours, prof) {
   const day = hours.filter((h) => h.daylight && h.state !== 'nodata');
   if (!day.length) return { state: 'nodata', goHours: 0 };
   let best = null, run = null;
@@ -383,8 +384,96 @@ export function summarizeDay(hours) {
     state, window: best, goHours, maybeHours,
     topAgl: pick((h) => h.a && h.a.topAgl),
     top: pick((h) => h.a && h.a.top),
+    base: pick((h) => h.a && h.a.cu && h.a.base),
     wstar: pick((h) => h.a && h.a.wstar),
     cu: usable.some((h) => h.a && h.a.cu),
+    rating: rateDay(day, best, prof),
     mainReason,
   };
+}
+
+// Day rating 0–5 stars, from the longest safe window: 1 star for a safe window of 2 h or more,
+// up to +2 for thermal height above launch, +1 for thermal strength, +1 for 5 or more hours
+// with usable thermals in the window, −0.5 when the wind aloft is near the limit.
+export function rateDay(day, best, prof) {
+  if (!best || best.n < 2) return 0;
+  const win = day.filter((h) => h.hour >= best.from && h.hour < best.to && h.a);
+  const max = (f) => win.reduce((m, h) => Math.max(m, f(h) || 0), 0);
+  const top = max((h) => h.a.topAgl), w = max((h) => h.a.wstar), air = max((h) => h.a.airMax.ws);
+  let r = 1;
+  r += top >= 1200 ? 2 : top >= 700 ? 1.5 : top >= 350 ? 1 : top >= 150 ? 0.5 : 0;
+  r += w >= 2 ? 1 : w >= 1.3 ? 0.5 : 0;
+  const soar = win.filter((h) => h.a.topAgl >= 150).length;
+  r += soar >= 5 ? 1 : soar >= 3 ? 0.5 : 0;
+  if (prof && air > prof.air * 0.8) r -= 0.5;
+  return Math.max(1, Math.min(5, Math.round(r)));
+}
+
+// Stability of the air above the launch: temperature gradient over the first 1500 m,
+// the first inversion (temperature rising with height) and the freezing level.
+export function stability(h, site) {
+  const a = h.a;
+  if (!a) return null;
+  const pts = a.prof.filter((p) => p.T != null);
+  const top = pts[pts.length - 1].z;
+  const span = Math.min(1500, top - site.elev);
+  const lapse = span >= 500 ? ((interp(pts, 'T', site.elev) - interp(pts, 'T', site.elev + span)) / span) * 1000 : null;
+  let inv = null;
+  for (let i = 1; i < pts.length && pts[i - 1].z < site.elev + 3500; i++) {
+    const p0 = pts[i - 1], p1 = pts[i];
+    if (p1.T - p0.T > 0.3) {
+      if (!inv) inv = { base: p0.z, top: p1.z, dT: p1.T - p0.T };
+      else if (Math.abs(inv.top - p0.z) < 1) { inv.top = p1.z; inv.dT += p1.T - p0.T; }
+      else break;
+    } else if (inv) break;
+  }
+  let zero = null;
+  if (pts[0].T <= 0) zero = pts[0].z;
+  else for (let i = 1; i < pts.length; i++) {
+    if (pts[i].T <= 0) { const p0 = pts[i - 1], p1 = pts[i]; zero = p0.z + ((p1.z - p0.z) * p0.T) / (p0.T - p1.T); break; }
+  }
+  const cls = lapse == null ? null : lapse >= 8.5 ? 'unstable' : lapse >= 6.5 ? 'conditional' : lapse >= 4 ? 'stable' : 'veryStable';
+  return { lapse, cls, inv, zero, surfaceInv: inv && inv.base <= site.elev + 1 };
+}
+
+// ---------- ensemble (ECMWF, 51 members) ----------
+const ENS_VARS = ['wind_speed_10m', 'wind_direction_10m', 'wind_gusts_10m', 'precipitation', 'wind_speed_850hPa'];
+export const ENS_MODEL = 'ecmwf_ifs025';
+
+export async function fetchEnsemble(site, signal) {
+  const p = new URLSearchParams({
+    latitude: site.lat.toFixed(4), longitude: site.lon.toFixed(4), elevation: String(Math.round(site.elev)),
+    hourly: ENS_VARS.join(','), models: ENS_MODEL, forecast_days: '7', timezone: 'auto', wind_speed_unit: 'kmh',
+  });
+  const res = await fetch('https://ensemble-api.open-meteo.com/v1/ensemble?' + p.toString(), { signal });
+  if (!res.ok) throw new Error(String(res.status));
+  return res.json();
+}
+
+// Share of ensemble members that meet the basic limits (launch wind and direction, gusts, rain,
+// wind at 850 hPa) for every hour: { 'YYYY-MM-DDTHH:00': 0..1 }.
+export function ensembleProb(json, site, prof) {
+  const h = json.hourly || {};
+  const members = Object.keys(h).filter((k) => k === 'wind_speed_10m' || k.startsWith('wind_speed_10m_member')).map((k) => k.slice('wind_speed_10m'.length));
+  const col = (v, m) => h[v + m] || [];
+  const out = {};
+  (h.time || []).forEach((time, i) => {
+    let n = 0, ok = 0;
+    for (const m of members) {
+      const ws = col('wind_speed_10m', m)[i];
+      if (ws == null) continue;
+      n++;
+      const wd = col('wind_direction_10m', m)[i], g = col('wind_gusts_10m', m)[i];
+      const pr = col('precipitation', m)[i], w850 = col('wind_speed_850hPa', m)[i];
+      let pass = ws <= prof.wind;
+      if (pass && g != null) pass = g <= prof.gust && g - ws <= prof.spread;
+      if (pass && pr != null) pass = pr < 0.5;
+      // 850 hPa (about 1500 m) is in the flying layer only when the launch is high enough.
+      if (pass && w850 != null && site.elev >= 400) pass = w850 <= prof.air;
+      if (pass && ws >= 5 && wd != null && site.dirs && site.dirs.length) pass = offAngle(wd, site.dirs) <= 45;
+      if (pass) ok++;
+    }
+    out[time] = n ? ok / n : null;
+  });
+  return { prob: out, members: members.length };
 }

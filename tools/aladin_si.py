@@ -125,12 +125,22 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--zip', help='use a downloaded nwp_*.zip instead of fetching the latest run')
     ap.add_argument('--out', default=str(ROOT / 'data' / 'aladin-si.json'))
+    ap.add_argument('--skip-if-same', action='store_true', help='do nothing when --out already holds the latest run')
     args = ap.parse_args()
 
     if args.zip:
         blob = Path(args.zip).read_bytes()
     else:
-        url = f'{BASE}nwp_{latest_run()}.zip'
+        latest = latest_run()
+        if args.skip_if_same and Path(args.out).exists():
+            try:
+                have = json.loads(Path(args.out).read_text(encoding='utf-8')).get('run', '')
+            except ValueError:
+                have = ''
+            if have == dt.datetime.strptime(latest, '%Y%m%d-%H%M').strftime('%Y-%m-%dT%H:%MZ'):
+                print('ALADIN-SI run', have, 'is already current; skipping download', file=sys.stderr)
+                return
+        url = f'{BASE}nwp_{latest}.zip'
         print('downloading', url, file=sys.stderr)
         blob = urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': UA}), timeout=300).read()
     z = zipfile.ZipFile(io.BytesIO(blob))

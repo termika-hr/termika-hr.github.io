@@ -1,4 +1,5 @@
 data/aladin-si.json
+data/obs.json
 __pycache__/
 *.pyc
 .playwright-mcp/

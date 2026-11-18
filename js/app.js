@@ -2,10 +2,12 @@
 import { SITES, REGIONS } from './sites.js';
 import * as M from './meteo.js';
 import { STR, dirLabel, degLabel } from './i18n.js';
+import { showMap } from './map.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const TTL = 30 * 60 * 1000;
+const APP_URL = 'https://pboric.github.io/termika/';
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('termika:' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -19,14 +21,23 @@ const S = {
   model: store.get('model', 'icon_seamless'),
   custom: store.get('custom', []),
   favs: store.get('favs', []),
+  limits: store.get('limits', null),
   ov: null, ovStatus: 'idle', ovError: null,
   dt: null, dtStatus: 'idle',
-  al: null,       // ALADIN-SI extract (data/aladin-si.json)
-  dmodel: null,   // model shown on the site page; null = main model
+  al: null,        // ALADIN-SI extract (data/aladin-si.json)
+  obs: null,       // live station data (data/obs.json)
+  ens: null,       // ECMWF ensemble for the open site
+  dmodel: null,    // model shown on the site page; null = main model
   hour: null,
+  bestDay: 0,
+  mapDay: 0, mapHour: 'day',
+  mapOpts: store.get('mapOpts', { thermals: true, stations: true, base: 'topo' }),
+  points: {},      // "lat,lon" -> ground height in m, or 'loading' / 'error'
+  shareCtx: null,
 };
-if (!M.MODELS[S.model]) S.model = 'icon_seamless';
+if (!M.MODELS[S.model] || M.MODELS[S.model].local) S.model = 'icon_seamless';
 if (!M.PROFILES[S.profile]) S.profile = 'student';
+if (S.limits) M.PROFILES.custom = { ...M.PROFILES.custom, ...S.limits };
 
 const t = () => STR[S.lang];
 const locale = () => (S.lang === 'hr' ? 'hr-HR' : 'en-GB');
@@ -49,6 +60,7 @@ const F = {
   w: (kmh) => `${wNum(kmh)} ${unitLabel()}`,
   mm: (v) => (v < 1 ? v.toFixed(1) : Math.round(v)),
 };
+const dec1 = (v) => (S.lang === 'hr' ? v.toFixed(1).replace('.', ',') : v.toFixed(1));
 const m50 = (v) => Math.round(v / 50) * 50;
 const pad2 = (n) => String(n).padStart(2, '0');
 function dayParts(date) {
@@ -66,6 +78,15 @@ function timeStr(ms) {
   return d.toDateString() === now.toDateString() ? hm : `${d.toLocaleDateString(locale(), { day: 'numeric', month: 'numeric' })} ${hm}`;
 }
 function windowText(w) { return w ? t().windowH(w.from, w.to) : ''; }
+function stars(n) {
+  if (!n) return '';
+  return `<span class="stars" title="${t().rating}: ${t().ratingOf(n)}" aria-label="${t().rating}: ${t().ratingOf(n)}">${'★'.repeat(n)}<span class="off">${'★'.repeat(5 - n)}</span></span>`;
+}
+function distKm(a, b) {
+  const r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(x));
+}
 
 // ---------- icons ----------
 const IC = {
@@ -75,7 +96,10 @@ const IC = {
   star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
   edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
   close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  share: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4M5 11v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
 };
+const IC_SHARE_INLINE = IC.share.replace('<svg ', '<svg class="inline-ic" ');
 // Arrow points where the wind blows to.
 function arrow(wd) {
   if (wd == null) return '';
@@ -98,13 +122,38 @@ function rose(dirs, cls = '', labels = false) {
   return `<svg class="${cls}" viewBox="${vb}" aria-hidden="true"><circle r="${r}" fill="var(--surface-2)" stroke="var(--line)"/>${wedges}<circle r="${r}" fill="none" stroke="var(--muted)" stroke-width="0.8"/><path d="M0 -${r}V-${r - 3}" stroke="var(--ink)" stroke-width="1.2"/><circle r="1.3" fill="var(--ink)"/>${lab}</svg>`;
 }
 const tr = (v) => (v == null ? '' : typeof v === 'string' ? v : v[S.lang] || v.hr);
-// "DWD ICON · 2–7 km" plus the range when a model stops before day 7.
+// "DWD · 2–7 km" plus the range when a model stops before day 7.
 function modelLong(k) {
   const m = M.MODELS[k];
   const res = S.lang === 'hr' ? m.res.replace('.', ',') : m.res;
   return `${m.org} · ${res}${m.days < 7 ? ` · ${m.days} ${t().days}` : ''}`;
 }
 const dirsText = (dirs) => (dirs || []).map((d) => dirLabel(d, S.lang)).join(', ');
+
+// ---------- routing ----------
+// #view=map · #site=<id>&day=<n> · #point=<lat>,<lon>&day=<n> · empty = list
+function route() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  const day = Math.max(0, Math.min(6, +(p.get('day') || 0) || 0));
+  if (p.get('view') === 'map') return { view: 'map', day };
+  const pt = (p.get('point') || '').split(',').map(Number);
+  if (pt.length === 2 && pt.every(Number.isFinite) && Math.abs(pt[0]) <= 90 && Math.abs(pt[1]) <= 180) {
+    return { view: 'site', day, point: { lat: pt[0], lon: pt[1], key: `${pt[0].toFixed(4)},${pt[1].toFixed(4)}` } };
+  }
+  if (p.get('site')) return { view: 'site', day, site: p.get('site') };
+  return { view: 'list', day };
+}
+function currentSite(r = route()) {
+  if (r.point) {
+    const elev = S.points[r.point.key];
+    if (typeof elev !== 'number') return null;
+    return { id: 'pt:' + r.point.key, name: t().pointName(r.point.lat.toFixed(3), r.point.lon.toFixed(3)), lat: r.point.lat, lon: r.point.lon, elev, dirs: [], point: true };
+  }
+  return r.site ? findSite(r.site) : null;
+}
+function hrefFor(site, day = 0) {
+  return site.point ? `#point=${site.lat.toFixed(4)},${site.lon.toFixed(4)}&day=${day}` : `#site=${encodeURIComponent(site.id)}&day=${day}`;
+}
 
 // ---------- data ----------
 function siteKey(s) { return [s.id, s.lat, s.lon, s.elev, (s.dirs || []).join('')].join(':'); }
@@ -167,13 +216,17 @@ function applyDt(c, site) {
   const parsed = {};
   for (const m of M.OM_MODELS()) parsed[m] = M.parseLocation(c.raw, m);
   const al = S.al?.sites?.[site.id];
-  if (al && !site.custom) parsed.aladin_si = M.parseLocation(al, 'aladin_si');
+  if (al && !site.custom && !site.point) parsed.aladin_si = M.parseLocation(al, 'aladin_si');
   S.dt = { key: c.key, t: c.t, siteId: site.id, parsed, days: {} };
   analyzeDt(site);
 }
 function analyzeDt(site) {
-  if (!S.dt) return;
+  if (!S.dt || !site) return;
   for (const m of Object.keys(S.dt.parsed)) S.dt.days[m] = M.analyzeSite(S.dt.parsed[m], site, S.profile);
+}
+function siteDays(site) {
+  if (S.dt && S.dt.siteId === site.id && S.dt.days[S.model]) return S.dt.days[S.model];
+  return S.ov && S.ov.model === S.model ? S.ov.days[site.id] : null;
 }
 
 // ALADIN-SI comes from a file prepared by tools/aladin_si.py, not from Open-Meteo.
@@ -186,29 +239,68 @@ async function loadAladin() {
     S.al = null;
     return;
   }
-  const s = route().site && findSite(route().site);
-  const loc = s && !s.custom && S.al.sites?.[s.id];
+  const s = currentSite();
+  const loc = s && !s.custom && !s.point && S.al.sites?.[s.id];
   if (loc && S.dt && S.dt.siteId === s.id) {
     S.dt.parsed.aladin_si = M.parseLocation(loc, 'aladin_si');
     S.dt.days.aladin_si = M.analyzeSite(S.dt.parsed.aladin_si, s, S.profile);
     render();
   }
 }
-function siteDays(site) {
-  if (S.dt && S.dt.siteId === site.id && S.dt.days[S.model]) return S.dt.days[S.model];
-  return S.ov && S.ov.model === S.model ? S.ov.days[site.id] : null;
+
+// Live stations come from a file refreshed every 30 minutes by tools/obs.py.
+async function loadObs() {
+  try {
+    const r = await fetch('data/obs.json', { cache: 'no-cache' });
+    if (!r.ok) throw new Error(r.status);
+    S.obs = await r.json();
+    S.obsAt = Date.now();
+    render();
+  } catch (e) { /* keep what we have */ }
 }
 
-// ---------- routing ----------
-function route() {
-  const p = new URLSearchParams(location.hash.slice(1));
-  return { site: p.get('site'), day: Math.max(0, Math.min(6, +(p.get('day') || 0) || 0)) };
+// ECMWF ensemble for the open site.
+async function loadEnsemble(site, force = false) {
+  const key = siteKey(site);
+  if (!force && S.ens && S.ens.key === key && Date.now() - S.ens.t < 2 * TTL) return;
+  const cached = store.get('ens', null);
+  if (!force && cached && cached.key === key && Date.now() - cached.t < 2 * TTL) { S.ens = cached; render(); return; }
+  try {
+    const raw = await M.fetchEnsemble(site);
+    S.ens = { key, t: Date.now(), raw };
+    store.set('ens', S.ens);
+  } catch (e) {
+    if (cached && cached.key === key) S.ens = cached;
+  }
+  render();
 }
-const siteHref = (id, day = 0) => `#site=${encodeURIComponent(id)}&day=${day}`;
+let ensMemo = null;
+function ensFor(site) {
+  if (!S.ens || S.ens.key !== siteKey(site)) return null;
+  const k = S.ens.t + '|' + S.profile + '|' + JSON.stringify(prof());
+  if (!ensMemo || ensMemo.k !== k) ensMemo = { k, ...M.ensembleProb(S.ens.raw, site, prof()) };
+  return ensMemo;
+}
 
-// ---------- views ----------
-function header() {
+// A point picked on the map needs its ground height before it can be forecast.
+async function ensurePoint(pt) {
+  if (S.points[pt.key] === 'loading') return;
+  S.points[pt.key] = 'loading'; render();
+  try {
+    const r = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${pt.lat}&longitude=${pt.lon}`);
+    const j = await r.json();
+    S.points[pt.key] = Math.round(j.elevation[0]);
+  } catch (e) {
+    S.points[pt.key] = 'error';
+  }
+  const r = route();
+  if (r.point && r.point.key === pt.key) onRoute();
+}
+
+// ---------- shared pieces ----------
+function header(r) {
   const busy = S.ovStatus === 'loading' || S.dtStatus === 'loading';
+  const tab = (href, label, on) => `<a href="${href}"${on ? ' aria-current="page"' : ''}>${label}</a>`;
   return `<header class="top">
     <a class="brand" href="#">${IC.logo}<span><b>Termika</b><small>${t().tagline}</small></span></a>
     <div class="top-actions">
@@ -219,31 +311,82 @@ function header() {
       <button type="button" class="icon-btn" data-act="settings" aria-label="${t().settings}" title="${t().settings}">${IC.gear}</button>
     </div>
   </header>
-  <div class="status">
-    ${S.ov ? `<span>${t().updated} <b>${timeStr(S.ov.t)}</b></span>` : ''}
-    <span>${t().model} <b>${M.MODELS[S.model].label}</b> <span class="dim">(${modelLong(S.model)})</span></span>
-    <span><b>${t().levels[S.profile]}</b></span>
-    ${S.ovStatus === 'loading' ? `<span>${t().loading}</span>` : ''}
+  <div class="subbar">
+    <nav class="views" aria-label="${t().viewList} / ${t().viewMap}">${tab('#', t().viewList, r.view === 'list')}${tab('#view=map', t().viewMap, r.view === 'map')}</nav>
+    <div class="status">
+      ${S.ov ? `<span>${t().updated} <b>${timeStr(S.ov.t)}</b></span>` : ''}
+      <span>${t().model} <b>${M.MODELS[S.model].label}</b></span>
+      <span><b>${t().levels[S.profile]}</b></span>
+      ${S.ovStatus === 'loading' ? `<span>${t().loading}</span>` : ''}
+    </div>
   </div>
   ${S.ovStatus === 'error' ? `<div class="banner ${S.ov ? '' : 'err'}" role="status">${S.ov ? t().stale(timeStr(S.ov.t)) : t().error(esc(S.ovError))}</div>` : ''}`;
 }
 
+function footer() {
+  return `<footer class="foot"><p class="disc">${t().disclaimer}</p><p><button type="button" class="btn small" data-act="share">${t().share}</button></p><p>${t().attribution}</p></footer>`;
+}
+
+// ---------- install + share ----------
+let installEvt = null; // Chrome/Edge/Samsung: the deferred install prompt
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isMobile = () => isIOS() || /Android/i.test(navigator.userAgent);
+
+function installBanner() {
+  if (isStandalone() || Date.now() < store.get('installHide', 0)) return '';
+  let body;
+  if (installEvt) body = `<p>${t().instText}</p><button type="button" class="btn primary" data-act="install">${t().instBtn}</button>`;
+  else if (isIOS()) body = `<p>${t().instIOS(IC_SHARE_INLINE)}</p>`;
+  else if (isMobile()) body = `<p>${t().instAndroid}</p>`;
+  else return '';
+  return `<section class="install" aria-label="${t().instTitle}">${IC.logo}${body}<button type="button" class="btn small" data-act="install-hide">${t().instLater}</button></section>`;
+}
+
+function shareHtml(msg = '', ok = true) {
+  const c = S.shareCtx;
+  return `<div class="dlg">
+    <div class="dlg-head"><h2 id="dlg-title">${esc(c.title)}</h2><button type="button" class="icon-btn" data-act="close" aria-label="${t().close}">${IC.close}</button></div>
+    <p class="hint" style="margin:0">${c.hint}</p>
+    ${c.qr ? `<img class="share-qr" src="icons/qr.svg" alt="QR: ${APP_URL}" width="200" height="200">` : ''}
+    <p class="share-url" id="share-url">${esc(c.url)}</p>
+    <div class="btns">
+      ${navigator.share ? `<button type="button" class="btn primary" data-act="share-send">${t().shareSend}</button>` : ''}
+      <button type="button" class="btn" data-act="share-copy">${t().shareCopy}</button>
+    </div>
+    ${msg ? `<p class="${ok ? 'ok-msg' : 'err-msg'}" role="status">${msg}</p>` : ''}
+    ${c.qr ? `<p class="hint" style="margin:0">${t().install}</p>` : ''}
+  </div>`;
+}
+function openShare(ctx, msg, ok) {
+  form = null;
+  if (ctx) S.shareCtx = ctx;
+  const d = $('#dlg');
+  d.innerHTML = shareHtml(msg, ok);
+  if (!d.open) d.showModal();
+}
+
+// ---------- list view ----------
 function bestBets() {
   if (!S.ov) return '';
   const sites = allSites();
-  const col = (di) => {
-    const day = Object.values(S.ov.days)[0]?.[di];
-    if (!day) return '';
-    const p = dayParts(day.date);
-    const list = sites
-      .map((s) => ({ s, sum: S.ov.days[s.id]?.[di]?.summary }))
-      .filter((x) => x.sum && x.sum.state === 'go')
-      .sort((a, b) => (b.sum.window?.n || 0) - (a.sum.window?.n || 0) || b.sum.topAgl - a.sum.topAgl)
-      .slice(0, 4);
-    const items = list.map(({ s, sum }) => `<li><a href="${siteHref(s.id, di)}"><span class="dot st-go"></span><b>${esc(s.name)}</b><span class="meta num">${windowText(sum.window)}${sum.topAgl >= 150 ? ` · ${t().thermalsTo(m50(sum.top))}` : ''}</span></a></li>`).join('');
-    return `<div class="best-day"><h3>${di === 0 ? t().today : t().tomorrow} <span>${p.full}</span></h3>${items ? `<ol>${items}</ol>` : `<p class="none">${t().noneGo}</p>`}</div>`;
-  };
-  return `<section class="best"><h2>${t().best}</h2><div class="best-grid">${col(0)}${col(1)}</div></section>`;
+  const first = Object.values(S.ov.days)[0] || [];
+  if (!first.length) return '';
+  const di = Math.min(S.bestDay, first.length - 1);
+  const goCount = (i) => sites.filter((s) => S.ov.days[s.id]?.[i]?.summary.state === 'go').length;
+  const chips = first.map((d, i) => {
+    const p = dayParts(d.date), n = goCount(i);
+    return `<button type="button" class="chip${p.weekend ? ' wknd' : ''}" data-bestday="${i}" aria-pressed="${i === di}">${i === 0 ? t().today : i === 1 ? t().tomorrow : p.wd} <b>${p.dd}</b>${n ? `<i class="count">${n}</i>` : ''}</button>`;
+  }).join('');
+  const rows = sites.map((s) => ({ s, sum: S.ov.days[s.id]?.[di]?.summary })).filter((x) => x.sum);
+  const go = rows.filter((x) => x.sum.state === 'go')
+    .sort((a, b) => b.sum.rating - a.sum.rating || (b.sum.window?.n || 0) - (a.sum.window?.n || 0) || b.sum.topAgl - a.sum.topAgl)
+    .slice(0, 6);
+  const maybe = rows.filter((x) => x.sum.state === 'maybe');
+  const items = go.map(({ s, sum }) => `<li><a href="${hrefFor(s, di)}"><span class="dot st-go"></span><b>${esc(s.name)}</b>${stars(sum.rating)}<span class="meta num">${windowText(sum.window)}${sum.topAgl >= 150 ? ` · ${t().thermalsTo(m50(sum.top))}` : ''}</span></a></li>`).join('');
+  const caution = maybe.length ? `<p class="hint caution"><span class="dot st-maybe"></span> ${t().caution}: ${maybe.slice(0, 8).map(({ s }) => `<a href="${hrefFor(s, di)}">${esc(s.name)}</a>`).join(', ')}</p>` : '';
+  return `<section class="best"><h2>${t().best}</h2><div class="chips" role="group">${chips}</div>
+    <div class="best-day">${items ? `<ol>${items}</ol>` : `<p class="none">${t().noneGo}</p>`}${caution}</div></section>`;
 }
 
 function matrix() {
@@ -255,12 +398,12 @@ function matrix() {
     const days = S.ov.days[s.id] || [];
     const cells = days.map((d, i) => {
       const sum = d.summary;
-      const tip = `${s.name} · ${dayParts(d.date).full}: ${t().state[sum.state]}${sum.window ? ' ' + windowText(sum.window) : ''}${sum.mainReason && sum.state === 'no' ? ' · ' + t().short[sum.mainReason] : ''}`;
+      const tip = `${s.name} · ${dayParts(d.date).full}: ${t().state[sum.state]}${sum.window ? ' ' + windowText(sum.window) : ''}${sum.rating ? ' · ' + t().rating + ' ' + t().ratingOf(sum.rating) : ''}${sum.mainReason && sum.state === 'no' ? ' · ' + t().short[sum.mainReason] : ''}`;
       const main = sum.window ? `${sum.window.from}–${sum.window.to}` : sum.state === 'maybe' ? '!' : sum.state === 'no' ? '✕' : '';
       const sub = sum.state !== 'no' && sum.topAgl >= 150 ? `<i>${m50(sum.top)}</i>` : '';
-      return `<a class="mcell st-${sum.state}" href="${siteHref(s.id, i)}" title="${esc(tip)}" aria-label="${esc(tip)}">${main}${sub}</a>`;
+      return `<a class="mcell st-${sum.state}" href="${hrefFor(s, i)}" title="${esc(tip)}" aria-label="${esc(tip)}">${main}${sub}</a>`;
     }).join('');
-    return `<div class="mrow" role="row"><a class="mname" href="${siteHref(s.id)}">${rose(s.dirs)}<span><b>${esc(s.name)}</b><small>${Math.round(s.elev)} m · ${dirsText(s.dirs)}</small></span></a>${cells}</div>`;
+    return `<div class="mrow" role="row"><a class="mname" href="${hrefFor(s)}">${rose(s.dirs)}<span><b>${esc(s.name)}</b><small>${Math.round(s.elev)} m · ${dirsText(s.dirs)}</small></span></a>${cells}</div>`;
   };
   const groups = [];
   const favs = sites.filter((s) => S.favs.includes(s.id));
@@ -277,49 +420,96 @@ function matrix() {
     <div class="legend">${legend}<span class="num">11–15 = ${S.lang === 'hr' ? 'siguran prozor (sati)' : 'safe window (hours)'}</span><span class="num">1650 = ${S.lang === 'hr' ? 'vrh termike, m n.v.' : 'thermal top, m ASL'}</span></div>`;
 }
 
-// ---------- install + share ----------
-const APP_URL = 'https://pboric.github.io/termika/';
-let installEvt = null; // Chrome/Edge/Samsung: the deferred install prompt
-const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-const isMobile = () => isIOS() || /Android/i.test(navigator.userAgent);
-const IC_SHARE = '<svg class="inline-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4M5 11v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-
-function installBanner() {
-  if (isStandalone() || Date.now() < store.get('installHide', 0)) return '';
-  let body;
-  if (installEvt) body = `<p>${t().instText}</p><button type="button" class="btn primary" data-act="install">${t().instBtn}</button>`;
-  else if (isIOS()) body = `<p>${t().instIOS(IC_SHARE)}</p>`;
-  else if (isMobile()) body = `<p>${t().instAndroid}</p>`;
-  else return '';
-  return `<section class="install" aria-label="${t().instTitle}">${IC.logo}${body}<button type="button" class="btn small" data-act="install-hide">${t().instLater}</button></section>`;
-}
-
-function shareHtml(msg = '', ok = true) {
-  return `<div class="dlg">
-    <div class="dlg-head"><h2 id="dlg-title">${t().share}</h2><button type="button" class="icon-btn" data-act="close" aria-label="${t().close}">${IC.close}</button></div>
-    <p class="hint" style="margin:0">${t().shareText}</p>
-    <img class="share-qr" src="icons/qr.svg" alt="QR: ${APP_URL}" width="200" height="200">
-    <p class="share-url" id="share-url">${APP_URL}</p>
-    <div class="btns">
-      ${navigator.share ? `<button type="button" class="btn primary" data-act="share-send">${t().shareSend}</button>` : ''}
-      <button type="button" class="btn" data-act="share-copy">${t().shareCopy}</button>
-    </div>
-    ${msg ? `<p class="${ok ? 'ok-msg' : 'err-msg'}" role="status">${msg}</p>` : ''}
-    <p class="hint" style="margin:0">${t().install}</p>
-  </div>`;
-}
-function openShare(msg, ok) {
-  form = null;
-  const d = $('#dlg');
-  d.innerHTML = shareHtml(msg, ok);
-  if (!d.open) d.showModal();
+function help() {
+  const p = M.PROFILES;
+  const lim = Object.keys(p).map((k) => `<b>${t().levels[k]}:</b> ${t().levelLimits(p[k], F)}, ${S.lang === 'hr' ? 'udari najviše' : 'gusts at most'} ${F.w(p[k].spread)} ${S.lang === 'hr' ? 'jači od srednjeg vjetra' : 'above the mean wind'}.`).join(' ');
+  return `<details class="help"><summary>${t().helpTitle}</summary>${t().help.map((x) => `<p>${x}</p>`).join('')}<p>${lim}</p></details>`;
 }
 
 function overview() {
   return installBanner() + bestBets() + matrix() + help();
 }
 
+// ---------- map view ----------
+function kk7Layer(date, hour, sunrise) {
+  const mon = +date.slice(5, 7);
+  const season = [12, 1, 2].includes(mon) ? 'jan' : [3, 4, 5].includes(mon) ? 'apr' : [6, 7, 8].includes(mon) ? 'jul' : 'oct';
+  if (hour === 'day') return `thermals_${season}_all`;
+  const after = hour - (sunrise ? +sunrise.slice(11, 13) + +sunrise.slice(14, 16) / 60 : 7);
+  return `thermals_${season}_${after < 5 ? '04' : after < 8 ? '07' : '10'}`;
+}
+
+function mapView() {
+  if (!S.ov) return `<p class="boot">${S.ovStatus === 'error' ? t().error(esc(S.ovError || '')) : t().loading}</p>`;
+  const first = Object.values(S.ov.days)[0] || [];
+  const di = Math.min(S.mapDay, first.length - 1);
+  const day = first[di];
+  const chips = first.map((d, i) => { const p = dayParts(d.date); return `<button type="button" class="chip${p.weekend ? ' wknd' : ''}" data-mapday="${i}" aria-pressed="${i === di}">${i === 0 ? t().today : p.wd} <b>${p.dd}</b></button>`; }).join('');
+  const hours = day ? day.hours.filter((h) => h.daylight).map((h) => h.hour) : [];
+  const hourSel = `<label class="sel-wrap"><span class="sr">${S.lang === 'hr' ? 'Sat' : 'Hour'}</span><select id="map-hour" class="input">
+      <option value="day"${S.mapHour === 'day' ? ' selected' : ''}>${t().mapAllDay}</option>
+      ${hours.map((h) => `<option value="${h}"${S.mapHour === h ? ' selected' : ''}>${pad2(h)}:00</option>`).join('')}
+    </select></label>`;
+  const o = S.mapOpts;
+  const toggles = `<div class="toggles">
+      <button type="button" class="tog" data-maplayer="thermals" aria-pressed="${o.thermals}">${t().mapThermals}</button>
+      <button type="button" class="tog" data-maplayer="stations" aria-pressed="${o.stations}">${t().mapStations}</button>
+      <div class="seg" role="group"><button type="button" data-mapbase="topo" aria-pressed="${o.base === 'topo'}">${t().mapTerrain}</button><button type="button" data-mapbase="osm" aria-pressed="${o.base === 'osm'}">${t().mapStreet}</button></div>
+    </div>`;
+  const legend = ['go', 'maybe', 'no'].map((k) => `<span><i class="dot st-${k}"></i>${t().state[k]}</span>`).join('');
+  return `<section class="mapbar"><div class="chips" role="group">${chips}</div><div class="mapbar-row">${hourSel}${toggles}</div></section>
+    <div id="map-slot" class="map-slot"></div>
+    <div class="legend">${legend}<span>${t().mapHint}</span></div>
+    ${o.thermals ? `<p class="hint">${t().mapThermalNote}</p>` : ''}`;
+}
+
+function freshStations() {
+  if (!S.obs) return [];
+  const now = Date.now();
+  return S.obs.stations
+    .map((s) => ({ ...s, age: (now - Date.parse(s.time)) / 60000 }))
+    .filter((s) => s.ws != null && s.age < 180 && Number.isFinite(s.lat));
+}
+
+function stationWind(s) {
+  if (s.ws < 1) return `<span class="dim">${t().calm}</span>`;
+  return `<span class="wind">${arrow(s.wd)}${wNum(s.ws)} ${unitLabel()}</span>${s.wg ? ` <span class="dim">${t().gustShort} ${wNum(s.wg)}</span>` : ''}`;
+}
+
+function mapData() {
+  const first = Object.values(S.ov.days)[0] || [];
+  const di = Math.min(S.mapDay, first.length - 1);
+  const hour = S.mapHour;
+  const sites = allSites().filter((s) => S.ov.days[s.id]).map((s) => {
+    const d = S.ov.days[s.id][di];
+    const h = hour === 'day' ? null : d.hours.find((x) => x.hour === hour);
+    const state = hour === 'day' ? d.summary.state : h ? h.state : 'nodata';
+    const sum = d.summary;
+    const info = hour === 'day'
+      ? `${windowText(sum.window)}${sum.topAgl >= 150 ? ` · ${t().thermalsTo(m50(sum.top))}` : ''}`
+      : h && h.a ? `${degLabel(h.wd, S.lang)} ${F.w(h.ws)}${h.a.topAgl >= 150 ? ` · ${t().thermalsTo(m50(h.a.top))}` : ''}` : '';
+    return {
+      lat: s.lat, lon: s.lon, name: s.name,
+      icon: `<div class="pin st-${state}">${rose(s.dirs)}</div>`,
+      popup: `<div class="pop"><b>${esc(s.name)}</b><span class="dim">${Math.round(s.elev)} m · ${dirsText(s.dirs)}</span><span><span class="pill st-${state}">${t().state[state]}</span> ${stars(hour === 'day' ? sum.rating : 0)}</span>${info ? `<span>${info}</span>` : ''}<a href="${hrefFor(s, di)}">${t().mapOpen} →</a></div>`,
+    };
+  });
+  const stations = S.mapOpts.stations ? freshStations().map((s) => ({
+    lat: s.lat, lon: s.lon, name: s.name,
+    icon: `<div class="stn">${s.ws >= 1 ? arrow(s.wd) : ''}<b>${s.ws < 1 ? '0' : wNum(s.ws)}</b></div>`,
+    popup: `<div class="pop"><b>${esc(s.name)}</b><span class="dim">${s.src}${s.elev ? ` · ${Math.round(s.elev)} m` : ''} · ${t().ago(Math.round(s.age))}</span><span>${stationWind(s)}${s.t != null ? ` · ${Math.round(s.t)} °C` : ''}</span></div>`,
+  })) : [];
+  const ref = first[di];
+  return {
+    sites, stations, base: S.mapOpts.base,
+    kk7: S.mapOpts.thermals && ref ? kk7Layer(ref.date, hour, ref.sunrise) : null,
+    failText: t().mapFail,
+    onAction: handleClick, // Leaflet stops clicks inside popups from reaching the document
+    pointPopup: (lat, lon) => `<div class="pop"><b>${t().mapPoint}</b><span class="dim num">${lat.toFixed(3)}, ${lon.toFixed(3)}</span><a href="#point=${lat.toFixed(4)},${lon.toFixed(4)}&day=${di}">${t().mapOpen} →</a><button type="button" class="btn small" data-act="add-site-at" data-lat="${lat.toFixed(4)}" data-lon="${lon.toFixed(4)}">${t().pointSave}</button></div>`,
+  };
+}
+
+// ---------- site view ----------
 function pickHour(hours, sum) {
   const day = hours.filter((h) => h.daylight);
   if (S.hour != null && hours.some((h) => h.hour === S.hour)) return S.hour;
@@ -327,55 +517,115 @@ function pickHour(hours, sum) {
   return (day.find((h) => h.hour === 13) || day[Math.floor(day.length / 2)] || hours[12] || {}).hour ?? 12;
 }
 
-function detailView(site, di) {
-  const days = siteDays(site);
+function siteHead(site) {
   const fav = S.favs.includes(site.id);
-  const headHtml = `<nav class="crumbs"><a href="#">← ${t().allSites}</a></nav>
+  const actions = [
+    `<button type="button" class="icon-btn" data-act="share-site" aria-label="${t().shareForecast}" title="${t().shareForecast}">${IC.share}</button>`,
+    site.point ? `<button type="button" class="btn small" data-act="add-site-at" data-lat="${site.lat.toFixed(4)}" data-lon="${site.lon.toFixed(4)}" data-elev="${site.elev}">${t().pointSave}</button>` : '',
+    !site.point ? `<button type="button" class="icon-btn" data-act="fav" aria-pressed="${fav}" aria-label="${fav ? t().favRemove : t().favAdd}" title="${fav ? t().favRemove : t().favAdd}">${IC.star}</button>` : '',
+    site.custom ? `<button type="button" class="icon-btn" data-act="edit-site" data-id="${esc(site.id)}" aria-label="${t().edit}" title="${t().edit}">${IC.edit}</button>` : '',
+  ].join('');
+  return `<nav class="crumbs"><a href="#">← ${t().allSites}</a><a href="#view=map">${t().viewMap}</a></nav>
   <section class="site-head">
     ${rose(site.dirs, 'rose-big', true)}
     <div>
       <h1>${esc(site.name)}</h1>
-      <p>${t().launch(Math.round(site.elev))} · ${t().faces}: <b>${dirsText(site.dirs)}</b></p>
+      <p>${site.point ? t().ground(Math.round(site.elev)) : t().launch(Math.round(site.elev))}${site.dirs.length ? ` · ${t().faces}: <b>${dirsText(site.dirs)}</b>` : ''}</p>
+      ${site.point ? `<p class="warn">${t().pointNote}</p>` : ''}
       ${site.check ? `<p class="warn">${t().check}</p>` : ''}
       ${site.note ? `<p>${esc(tr(site.note))}</p>` : ''}
       ${site.src ? `<p>${t().source}: ${esc(tr(site.src))}</p>` : ''}
     </div>
-    <div class="site-actions">
-      <button type="button" class="icon-btn" data-act="fav" aria-pressed="${fav}" aria-label="${fav ? t().favRemove : t().favAdd}" title="${fav ? t().favRemove : t().favAdd}">${IC.star}</button>
-      ${site.custom ? `<button type="button" class="icon-btn" data-act="edit-site" data-id="${esc(site.id)}" aria-label="${t().edit}" title="${t().edit}">${IC.edit}</button>` : ''}
-    </div>
+    <div class="site-actions">${actions}</div>
   </section>`;
+}
+
+function pointPending(r) {
+  const st = S.points[r.point.key];
+  return `<nav class="crumbs"><a href="#">← ${t().allSites}</a><a href="#view=map">${t().viewMap}</a></nav><p class="boot">${st === 'error' ? t().pointFail : t().pointLoading}</p>`;
+}
+
+function agreement(date) {
+  if (!S.dt) return null;
+  let go = 0, n = 0;
+  for (const m of Object.keys(S.dt.days)) {
+    const d = S.dt.days[m].find((x) => x.date === date);
+    if (!d || d.summary.state === 'nodata') continue;
+    n++;
+    if (d.summary.state === 'go') go++;
+  }
+  return n ? { go, n } : null;
+}
+
+function ensSummary(site, day) {
+  const e = ensFor(site);
+  if (!e) return null;
+  const at = (h) => e.prob[`${day.date}T${pad2(h)}:00`];
+  const w = day.summary.window;
+  if (w) {
+    const v = [];
+    for (let h = w.from; h < w.to; h++) if (at(h) != null) v.push(at(h));
+    if (v.length) return { p: v.reduce((a, b) => a + b, 0) / v.length, text: t().ensWin(windowText(w)) };
+  }
+  let best = null;
+  for (const h of day.hours.filter((x) => x.daylight)) { const p = at(h.hour); if (p != null && (!best || p > best.p)) best = { p, hour: h.hour }; }
+  return best ? { p: best.p, text: t().ensMax(pad2(best.hour)) } : null;
+}
+
+function liveSection(site) {
+  const st = freshStations().map((s) => ({ ...s, d: distKm(site, s) })).filter((s) => s.d <= 70).sort((a, b) => a.d - b.d);
+  let list = st.slice(0, 4);
+  const mountain = st.find((s) => (s.elev || 0) >= 500);
+  if (mountain && !list.includes(mountain)) list = [...list.slice(0, 3), mountain];
+  if (!S.obs) return '';
+  const rows = list.map((s) => `<li>
+      <span class="live-name"><b>${esc(s.name)}</b><small>${s.elev ? `${Math.round(s.elev)} m · ` : ''}${Math.round(s.d)} km · ${s.src}</small></span>
+      <span class="live-wind">${stationWind(s)}</span>
+      <span class="dim num">${s.t != null ? `${Math.round(s.t)} °C` : ''}</span>
+      <span class="dim">${t().ago(Math.round(s.age))}</span>
+    </li>`).join('');
+  return `<section class="card"><h2>${t().live}</h2><p class="hint">${t().liveHint}</p>${rows ? `<ul class="live">${rows}</ul>` : `<p class="hint" style="margin:0">${t().liveNone}</p>`}</section>`;
+}
+
+function detailView(site, di) {
+  const days = siteDays(site);
+  const head = siteHead(site);
   if (!days || !days[di]) {
-    const msg = S.dtStatus === 'error' && S.ovStatus === 'error' ? t().error(esc(S.ovError || '')) : t().loading;
-    return headHtml + `<p class="boot">${msg}</p>`;
+    const msg = S.dtStatus === 'error' && (S.ovStatus === 'error' || site.point) ? t().error(esc(S.ovError || '')) : t().loading;
+    return head + `<p class="boot">${msg}</p>`;
   }
   const dm = S.dmodel && S.dt?.siteId === site.id && S.dt.days[S.dmodel] ? S.dmodel : S.model;
   const mdays = dm === S.model ? days : S.dt.days[dm];
   const baseDay = days[di];
-  const tabs = `<nav class="daytabs" role="tablist">${days.map((d, i) => { const p = dayParts(d.date); const st = (mdays.find((x) => x.date === d.date) || {}).summary?.state || 'nodata'; return `<a role="tab" class="daytab st-${st}" aria-selected="${i === di}" href="${siteHref(site.id, i)}">${i === 0 ? t().today.slice(0, 5) : p.wd}<b>${p.dd}</b></a>`; }).join('')}</nav>`;
+  const tabs = `<nav class="daytabs" role="tablist">${days.map((d, i) => { const p = dayParts(d.date); const st = (mdays.find((x) => x.date === d.date) || {}).summary?.state || 'nodata'; return `<a role="tab" class="daytab st-${st}" aria-selected="${i === di}" href="${hrefFor(site, i)}">${i === 0 ? t().today.slice(0, 5) : p.wd}<b>${p.dd}</b></a>`; }).join('')}</nav>`;
   const modelBar = `<div class="model-bar" id="model-bar"><span>${t().shown}: <b>${M.MODELS[dm].label}</b> <span class="dim">(${modelLong(dm)})</span></span>${dm !== S.model ? `<button type="button" class="btn small" data-model="">${t().backToMain(M.MODELS[S.model].label)}</button>` : ''}</div>`;
   const rise = baseDay.sunrise ? +baseDay.sunrise.slice(11, 13) : 7;
   const set = baseDay.sunset ? +baseDay.sunset.slice(11, 13) + 1 : 18;
   const cols = baseDay.hours.filter((h) => h.hour >= rise && h.hour <= set);
+  const live = di === 0 ? liveSection(site) : '';
   const day = mdays.find((d) => d.date === baseDay.date);
   if (!day || day.summary.state === 'nodata') {
-    return headHtml + tabs + modelBar + `<section class="card"><p class="hint" style="margin:0">${t().modelNoDay(M.MODELS[dm].label)}</p></section>` + compare(site, baseDay.date, cols, dm) + links(site);
+    return head + tabs + modelBar + `<section class="card"><p class="hint" style="margin:0">${t().modelNoDay(M.MODELS[dm].label)}</p></section>` + live + compare(site, baseDay.date, cols, dm) + links(site);
   }
   const sum = day.summary;
-
-  const cu = sum.cu;
+  const ag = agreement(day.date);
+  const en = ensSummary(site, day);
+  const agCls = ag ? (ag.go / ag.n >= 0.7 ? 'v-ok' : ag.go / ag.n >= 0.4 ? 'v-warn' : 'v-bad') : '';
+  const enCls = en ? (en.p >= 0.7 ? 'v-ok' : en.p >= 0.4 ? 'v-warn' : 'v-bad') : '';
   const kpis = `<dl class="kpis">
-    <div><dt>${t().window}</dt><dd class="num">${sum.window ? windowText(sum.window) : t().noWindow}</dd></div>
+    <div><dt>${t().window}</dt><dd class="num">${sum.window ? windowText(sum.window) : t().noWindow}${sum.rating ? `<small>${stars(sum.rating)}</small>` : ''}</dd></div>
     <div><dt>${t().ttop}</dt><dd class="num">${sum.topAgl >= 150 ? `${m50(sum.top)} m<small>${t().aboveLaunch(m50(sum.topAgl))}</small>` : `–<small>${t().noThermals}</small>`}</dd></div>
-    <div><dt>${t().cbase}</dt><dd class="num">${cu ? `${m50(sum.top)} m` : `–<small>${t().blue}</small>`}</dd></div>
-    <div><dt>${t().wstar}</dt><dd class="num">${sum.wstar > 0.2 ? `${sum.wstar.toFixed(1)} m/s` : '–'}<small>${t().est}</small></dd></div>
+    <div><dt>${t().cbase}</dt><dd class="num">${sum.base ? `${m50(sum.base)} m` : `–<small>${t().blue}</small>`}</dd></div>
+    <div><dt>${t().wstar}</dt><dd class="num">${sum.wstar > 0.2 ? `${dec1(sum.wstar)} m/s` : '–'}<small>${t().est}</small></dd></div>
+    ${ag ? `<div><dt>${t().agree}</dt><dd class="num ${agCls}">${ag.go}/${ag.n}<small>${t().agreeText(ag.go, ag.n)}</small></dd></div>` : ''}
+    ${en ? `<div><dt>${t().ens}</dt><dd class="num ${enCls}">${Math.round(en.p * 100)} %<small>${en.text} · ${t().ensSrc}</small></dd></div>` : ''}
   </dl>`;
   const reasonLine = sum.state === 'no' && sum.mainReason ? `<span>${t().mainReason}: ${t().short[sum.mainReason]}</span>` : '';
-  const summary = `<section class="summary st-${sum.state}"><div class="verdict"><span class="pill">${t().state[sum.state]}</span><span>${dayParts(day.date).full}</span>${reasonLine}</div>${kpis}</section>`;
-
+  const sun = baseDay.sunrise && baseDay.sunset ? `<span class="dim">${t().sun} ${baseDay.sunrise.slice(11, 16)}–${baseDay.sunset.slice(11, 16)}</span>` : '';
+  const summary = `<section class="summary st-${sum.state}"><div class="verdict"><span class="pill">${t().state[sum.state]}</span><span>${dayParts(day.date).full}</span>${reasonLine}${sun}</div>${kpis}</section>`;
   const hours = day.hours.filter((h) => h.hour >= rise && h.hour <= set);
   const sel = pickHour(hours, sum);
-  return headHtml + tabs + modelBar + summary + hourlyTable(site, hours, sel) + altitudeGrid(site, hours, sel) + hourDetail(site, hours.find((h) => h.hour === sel)) + compare(site, baseDay.date, cols, dm) + links(site);
+  return head + tabs + modelBar + summary + live + hourlyTable(site, hours, sel) + altitudeGrid(site, hours, sel) + hourDetail(site, hours.find((h) => h.hour === sel)) + compare(site, baseDay.date, cols, dm) + links(site);
 }
 
 function hourlyTable(site, hours, sel) {
@@ -389,22 +639,25 @@ function hourlyTable(site, hours, sel) {
   const w = (ws, wd, c) => (ws == null ? '<span class="dim">–</span>' : `<span class="wind ${c}">${arrow(wd)}${wNum(ws)}</span>`);
   const lim = (v, l) => (v > l ? 'v-bad' : v > l * 0.8 ? 'v-warn' : 'v-ok');
   const sym = { go: '✓', maybe: '!', no: '✕', night: '·', nodata: '?' };
+  const e = ensFor(site);
   const rows = [
     ['state', (h) => `<span class="sq st-${h.state}" title="${t().state[h.state]}">${sym[h.state]}</span>`],
-    ['wind', (h) => w(h.ws, h.wd, windCls(h)), true],
+    e ? ['ens', (h) => { const v = e.prob[h.time]; return v == null ? '<span class="dim">–</span>' : `<span class="${v >= 0.7 ? 'v-ok' : v >= 0.4 ? 'v-warn' : 'v-bad'}">${Math.round(v * 100)}</span>`; }] : null,
+    ['wind', (h) => w(h.ws, h.wd, windCls(h))],
     ['gust', (h) => (h.gust == null ? '–' : `<span class="${h.gust > p.gust || h.gust - h.ws > p.spread ? 'v-bad' : h.gust > p.gust * 0.8 || h.gust - h.ws > p.spread * 0.7 ? 'v-warn' : 'v-ok'}">${wNum(h.gust)}</span>`)],
     ['air', (h) => (h.a ? w(h.a.airMax.ws, h.a.airMax.wd, lim(h.a.airMax.ws, p.air)) : '–')],
     ['l850', (h) => (h.a?.l850 ? w(h.a.l850.ws, h.a.l850.wd, 'dim') : '–')],
     ['l700', (h) => (h.a?.l700 ? w(h.a.l700.ws, h.a.l700.wd, 'dim') : '–')],
     ['top', (h) => (h.a && h.a.topAgl >= 150 ? m50(h.a.top) : '<span class="dim">–</span>'), 'sep'],
     ['base', (h) => (h.a ? (h.a.cu ? m50(h.a.base) : `<span class="dim">${t().blueShort}</span>`) : '–')],
-    ['wstar', (h) => (h.a && h.a.wstar > 0.2 ? h.a.wstar.toFixed(1) : '<span class="dim">–</span>')],
+    ['wstar', (h) => (h.a && h.a.wstar > 0.2 ? dec1(h.a.wstar) : '<span class="dim">–</span>')],
     ['cloud', (h) => (h.cc == null ? '–' : `${h.cc}<span class="dim"> (${h.ccl ?? '–'})</span>`), 'sep'],
     ['rain', (h) => (h.pr > 0 ? `<span class="${h.pr >= 0.5 ? 'v-bad' : 'v-warn'}">${F.mm(h.pr)}</span>` : '<span class="dim">–</span>')],
     ['cape', (h) => (h.cape >= 50 ? `<span class="${h.cape >= 1500 ? 'v-bad' : h.cape >= 500 ? 'v-warn' : ''}">${Math.round(h.cape)}</span>` : '<span class="dim">–</span>')],
     ['temp', (h) => (h.T == null ? '–' : Math.round(h.T))],
-  ];
-  const body = rows.map(([k, f, sep]) => `<tr${sep === 'sep' ? ' class="sep"' : ''}><th scope="row">${t().rows[k]}${k === 'wind' || k === 'gust' || k === 'air' || k === 'l850' || k === 'l700' ? ` <span class="dim">${unitLabel()}</span>` : k === 'top' || k === 'base' ? ' <span class="dim">m</span>' : ''}</th>${hours.map((h) => `<td${cls(h)}>${f(h)}</td>`).join('')}</tr>`).join('');
+  ].filter(Boolean);
+  const unitFor = (k) => (['wind', 'gust', 'air', 'l850', 'l700'].includes(k) ? ` <span class="dim">${unitLabel()}</span>` : k === 'top' || k === 'base' ? ' <span class="dim">m</span>' : '');
+  const body = rows.map(([k, f, sep]) => `<tr${sep === 'sep' ? ' class="sep"' : ''}><th scope="row">${t().rows[k]}${unitFor(k)}</th>${hours.map((h) => `<td${cls(h)}>${f(h)}</td>`).join('')}</tr>`).join('');
   return `<section class="card"><div class="table-scroll" id="hscroll"><table class="htable">
     <thead><tr><th scope="row"></th>${hours.map((h) => `<th${cls(h)}><button type="button" data-hour="${h.hour}" aria-pressed="${h.hour === sel}">${pad2(h.hour)}</button></th>`).join('')}</tr></thead>
     <tbody>${body}</tbody></table></div></section>`;
@@ -442,22 +695,29 @@ function hourDetail(site, h) {
     ? rs.map((r) => `<li><span class="dot st-${r.sev === 2 ? 'no' : 'maybe'}"></span><span>${t().reasons[r.key](r.val, F)}</span></li>`).join('')
     : `<li class="ok"><span class="dot st-${h.state}"></span><span>${h.state === 'night' ? t().state.night : t().noIssues}</span></li>`;
   const a = h.a;
+  const st = a ? M.stability(h, site) : null;
+  const inv = st && st.inv
+    ? `${st.surfaceInv ? t().invSurface + ': ' : ''}${t().invText(m50(st.inv.base), m50(st.inv.top), dec1(st.inv.dT))}`
+    : t().invNone;
   const facts = a ? `<dl class="facts">
-    <dt>${t().rows.wind}</dt><dd>${degLabel(h.wd, S.lang)} ${F.w(h.ws)}, ${t().rows.gust.toLowerCase()} ${F.w(h.gust)}</dd>
+    <dt>${t().rows.wind}</dt><dd>${degLabel(h.wd, S.lang)} ${F.w(h.ws)}${h.gust != null ? `, ${t().rows.gust.toLowerCase()} ${F.w(h.gust)}` : ''}</dd>
     <dt>${S.lang === 'hr' ? '400 m iznad starta' : '400 m above launch'}</dt><dd>${a.lee ? `${degLabel(a.lee.wd, S.lang)} ${F.w(a.lee.ws)}` : '–'}</dd>
     <dt>${t().ttop}</dt><dd>${a.topAgl >= 150 ? `${m50(a.top)} m (${t().aboveLaunch(m50(a.topAgl))})` : t().noThermals}</dd>
     <dt>${t().cbase}</dt><dd>${a.cu ? `${m50(a.base)} m${a.cloudTop ? ` → ${S.lang === 'hr' ? 'vrh oblaka' : 'cloud top'} ${a.open ? '>' : ''}${m50(a.cloudTop)} m` : ''}` : t().blue}</dd>
+    <dt>${t().stab}</dt><dd>${st && st.lapse != null ? `${t().lapse(dec1(st.lapse))}: ${t().stabCls[st.cls]}` : '–'}</dd>
+    <dt>${t().inv}</dt><dd>${inv}</dd>
+    <dt>${t().zero}</dt><dd>${!st || st.zero == null ? '–' : st.zero <= site.elev + 1 ? t().zeroBelow : `${m50(st.zero)} m`}</dd>
     <dt>${t().rows.temp}</dt><dd>${Math.round(h.T)} °C / ${S.lang === 'hr' ? 'rosište' : 'dew point'} ${h.Td == null ? '–' : Math.round(h.Td)} °C</dd>
   </dl>` : '';
   return `<section class="card"><div class="hour-grid">
     <div class="why"><h2>${t().why} · ${t().hourTitle(pad2(h.hour))}</h2><ul>${list}</ul>${facts}</div>
-    <figure class="sounding" style="margin:0"><h2>${t().sounding} · ${t().hourTitle(pad2(h.hour))}</h2>${soundingSvg(site, h)}
-      <figcaption class="s-legend"><span><i style="border-color:var(--temp)"></i>${t().sLegend.T}</span><span><i style="border-color:var(--sky)"></i>${t().sLegend.Td}</span><span><i style="border-color:var(--accent);border-top-style:dashed"></i>${t().sLegend.parcel}</span></figcaption>
+    <figure class="sounding" style="margin:0"><h2>${t().sounding} · ${t().hourTitle(pad2(h.hour))}</h2>${soundingSvg(site, h, st)}
+      <figcaption class="s-legend"><span><i style="border-color:var(--temp)"></i>${t().sLegend.T}</span><span><i style="border-color:var(--sky)"></i>${t().sLegend.Td}</span><span><i style="border-color:var(--accent);border-top-style:dashed"></i>${t().sLegend.parcel}</span>${st && st.inv ? `<span><i class="inv-sw"></i>${t().sLegend.inv}</span>` : ''}</figcaption>
     </figure>
   </div></section>`;
 }
 
-function soundingSvg(site, h) {
+function soundingSvg(site, h, st) {
   const a = h.a;
   if (!a || !a.levels.length) return '';
   const W = 380, H = 330, L = 40, R = 66, T = 10, B = 26;
@@ -477,12 +737,16 @@ function soundingSvg(site, h) {
   const f1 = (v) => v.toFixed(1);
   let g = '';
   for (let z = zLo; z <= zHi; z += 500) g += `<line x1="${L}" x2="${L + pw}" y1="${f1(y(z))}" y2="${f1(y(z))}" stroke="var(--line)"/><text x="${L - 4}" y="${f1(y(z) + 3)}" text-anchor="end">${z}</text>`;
-  for (let v = tMin; v <= tMax; v += 5) g += `<line x1="${f1(x(v))}" x2="${f1(x(v))}" y1="${T}" y2="${T + ph}" stroke="var(--line)"/><text x="${f1(x(v))}" y="${H - 8}" text-anchor="middle">${v}°</text>`;
+  for (let v = tMin; v <= tMax; v += 5) g += `<line x1="${f1(x(v))}" x2="${f1(x(v))}" y1="${T}" y2="${T + ph}" stroke="var(--line)"${v === 0 ? ' stroke-width="2"' : ''}/><text x="${f1(x(v))}" y="${H - 8}" text-anchor="middle"${v === 0 ? ' class="lbl"' : ''}>${v}°</text>`;
   let adi = '';
   for (let v = tMin; v <= tMax + 60; v += 10) adi += `<line x1="${f1(x(v))}" y1="${f1(y(zLo))}" x2="${f1(x(v - 9.8 * (zHi - zLo) / 1000))}" y2="${f1(y(zHi))}" stroke="var(--muted)" stroke-opacity="0.25" stroke-dasharray="2 3"/>`;
   const line = (pts, key) => pts.filter((p) => p[key] != null).map((p) => `${f1(x(p[key]))},${f1(y(p.z))}`).join(' ');
   const ground = `<rect x="${L}" y="${f1(y(site.elev))}" width="${pw}" height="${f1(T + ph - y(site.elev))}" fill="var(--ground)" opacity="0.7"/><text x="${L + 4}" y="${f1(y(site.elev) + 12)}" class="lbl">${t().sLegend.launch} ${Math.round(site.elev)} m</text>`;
   let marks = '';
+  if (st && st.inv && st.inv.top > zLo && st.inv.base < zHi) {
+    const b = Math.max(st.inv.base, zLo), tp = Math.min(st.inv.top, zHi);
+    marks += `<rect x="${L}" y="${f1(y(tp))}" width="${pw}" height="${f1(Math.max(2, y(b) - y(tp)))}" fill="var(--temp)" opacity="0.12"/><text x="${L + pw - 4}" y="${f1(y(tp) + 11)}" text-anchor="end">${t().sLegend.inv}</text>`;
+  }
   if (a.cu) {
     const ct = Math.min(a.cloudTop || a.base + 300, zHi);
     marks += `<rect x="${L}" y="${f1(y(ct))}" width="${pw}" height="${f1(Math.max(2, y(a.base) - y(ct)))}" fill="var(--cloud)" opacity="0.35"/>`;
@@ -549,22 +813,21 @@ function aladinMap(site) {
 function links(site) {
   const lat = site.lat.toFixed(4), lon = site.lon.toFixed(4);
   const mb = `${Math.abs(site.lat).toFixed(3)}${site.lat >= 0 ? 'N' : 'S'}${Math.abs(site.lon).toFixed(3)}${site.lon >= 0 ? 'E' : 'W'}`;
-  return `<nav class="links">${t().links}
-    <a href="https://www.windy.com/?${lat},${lon},11" target="_blank" rel="noopener">Windy</a>
-    <a href="https://www.meteoblue.com/${S.lang === 'hr' ? 'hr' : 'en'}/weather/forecast/multimodel/${mb}" target="_blank" rel="noopener">meteoblue</a>
-    <a href="https://meteo.hr/prognoze.php?section=prognoze_model&amp;param=ala_k&amp;el=${aladinMap(site)}" target="_blank" rel="noopener">ALADIN (DHMZ)</a>
-    <a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=14/${lat}/${lon}" target="_blank" rel="noopener">${t().map}</a>
-  </nav>`;
-}
-
-function help() {
-  const p = M.PROFILES;
-  const lim = Object.keys(p).map((k) => `<b>${t().levels[k]}:</b> ${t().levelLimits(p[k], F)}, ${S.lang === 'hr' ? 'udari najviše' : 'gusts at most'} ${F.w(p[k].spread)} ${S.lang === 'hr' ? 'jači od srednjeg vjetra' : 'above the mean wind'}.`).join(' ');
-  return `<details class="help"><summary>${t().helpTitle}</summary>${t().help.map((x) => `<p>${x}</p>`).join('')}<p>${lim}</p></details>`;
-}
-
-function footer() {
-  return `<footer class="foot"><p class="disc">${t().disclaimer}</p><p><button type="button" class="btn small" data-act="share">${t().share}</button></p><p>${t().attribution}</p><p>${t().install}</p></footer>`;
+  const a = (href, label) => `<a href="${href}" target="_blank" rel="noopener">${label}</a>`;
+  return `<nav class="links"><span class="links-lab">${t().linksForecast}</span>
+      ${a(`https://www.windy.com/?${lat},${lon},11`, 'Windy')}
+      ${a(`https://www.meteoblue.com/${S.lang === 'hr' ? 'hr' : 'en'}/weather/forecast/multimodel/${mb}`, 'meteoblue')}
+      ${a(`https://meteo.hr/prognoze.php?section=prognoze_model&amp;param=ala_k&amp;el=${aladinMap(site)}`, 'ALADIN (DHMZ)')}
+    </nav>
+    <nav class="links"><span class="links-lab">${t().linksNow}</span>
+      ${a('https://meteo.hr/naslovnica_radarska-slika.php?tab=radari', t().lRadar)}
+      ${a('https://meteo.hr/podaci.php?section=podaci_mjerenja&amp;param=satelit', t().lSat)}
+      ${a(`https://map.blitzortung.org/#9/${lat}/${lon}`, t().lLightning)}
+      ${a('https://airspace.xcontest.org/', t().lAirspace)}
+      ${a('http://amc.crocontrol.hr/', t().lAmc)}
+      ${a(`https://thermal.kk7.ch/#${lat},${lon},13`, t().lThermals)}
+      ${a(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=14/${lat}/${lon}`, t().map)}
+    </nav>`;
 }
 
 // ---------- settings dialog ----------
@@ -573,6 +836,11 @@ let form = null; // site being edited in the dialog
 function settingsHtml() {
   const seg = (name, cur, opts) => `<div class="seg" role="group">${opts.map(([v, l]) => `<button type="button" data-set="${name}" data-val="${v}" aria-pressed="${cur === v}">${l}</button>`).join('')}</div>`;
   const levels = Object.keys(M.PROFILES).map((k) => `<label><input type="radio" name="level" value="${k}" ${S.profile === k ? 'checked' : ''}><span><b>${t().levels[k]}</b><small>${t().levelLimits(M.PROFILES[k], F)}</small></span></label>`).join('');
+  const c = M.PROFILES.custom;
+  const limits = `<div class="limits"${S.profile === 'custom' ? '' : ' hidden'}>
+      <p class="hint" style="margin:0">${t().limHint}</p>
+      <div class="row2">${['wind', 'gust', 'spread', 'air'].map((k) => `<div class="field"><label for="lim-${k}">${t().lim[k]} (km/h)</label><input class="input" id="lim-${k}" type="number" inputmode="numeric" min="1" max="80" step="1" value="${c[k]}"></div>`).join('')}</div>
+    </div>`;
   const models = Object.entries(M.MODELS).filter(([k]) => !M.MODELS[k].local).map(([k, m]) => `<label><input type="radio" name="model" value="${k}" ${S.model === k ? 'checked' : ''}><span><b>${m.label}</b><small>${modelLong(k)}</small></span></label>`).join('');
   const mine = S.custom.length
     ? `<ul class="site-list">${S.custom.map((s) => `<li><span><b>${esc(s.name)}</b> <small>${Math.round(s.elev)} m · ${dirsText(s.dirs)}</small></span><button type="button" class="btn small" data-act="edit-site" data-id="${esc(s.id)}">${t().edit}</button></li>`).join('')}</ul>`
@@ -581,7 +849,7 @@ function settingsHtml() {
     <div class="dlg-head"><h2 id="dlg-title">${t().settingsTitle}</h2><button type="button" class="icon-btn" data-act="close" aria-label="${t().close}">${IC.close}</button></div>
     <div class="field"><span class="lab">${t().lang}</span>${seg('lang', S.lang, [['hr', 'Hrvatski'], ['en', 'English']])}</div>
     <div class="field"><span class="lab">${t().units}</span>${seg('units', S.units, [['kmh', 'km/h'], ['ms', 'm/s'], ['kt', 'kt']])}</div>
-    <div class="field"><span class="lab">${t().level}</span><div class="choice">${levels}</div></div>
+    <div class="field"><span class="lab">${t().level}</span><div class="choice">${levels}</div>${limits}</div>
     <div class="field"><span class="lab">${t().modelPick}</span><div class="choice">${models}</div></div>
     <div class="field"><span class="lab">${t().mySites}</span>${mine}<div class="btns"><button type="button" class="btn" data-act="add-site">+ ${t().addSite}</button></div></div>
   </div>`;
@@ -637,25 +905,44 @@ function rerenderForm(msg, ok) {
   readForm();
   $('#dlg').innerHTML = siteFormHtml(msg, ok);
 }
-
-// ---------- events ----------
-function setPref(k, v) {
-  S[k] = v; store.set(k, v);
-  if (k === 'profile') { analyzeOv(); const r = route(); const s = r.site && findSite(r.site); if (s) analyzeDt(s); }
-  if (k === 'model') loadOverview();
-  render();
-  if ($('#dlg').open && !form) $('#dlg').innerHTML = settingsHtml();
+async function lookupElev() {
+  if (!isFinite(form.lat) || !isFinite(form.lon)) return rerenderForm(t().vCoord);
+  try {
+    const r = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${form.lat}&longitude=${form.lon}`);
+    const j = await r.json();
+    form.elev = Math.round(j.elevation[0]);
+    if (form) $('#dlg').innerHTML = siteFormHtml();
+  } catch (err) { rerenderForm(t().elevFail); }
 }
 
-document.addEventListener('click', async (e) => {
+// ---------- events ----------
+function reanalyze() {
+  analyzeOv();
+  analyzeDt(currentSite());
+  ensMemo = null;
+}
+
+function setPref(k, v) {
+  S[k] = v; store.set(k, v);
+  if (k === 'profile') reanalyze();
+  if (k === 'model') loadOverview();
+  render();
+  if ($('#dlg').open && !form && !S.shareOpen) $('#dlg').innerHTML = settingsHtml();
+}
+
+document.addEventListener('click', (e) => {
   const b = e.target.closest('button, [data-act]');
-  if (!b) return;
+  if (b) handleClick(b);
+});
+
+async function handleClick(b) {
   if (b.dataset.lang) return setPref('lang', b.dataset.lang);
   if (b.dataset.set) return setPref(b.dataset.set, b.dataset.val);
-  if (b.dataset.hour) {
-    S.hour = +b.dataset.hour;
-    return render();
-  }
+  if (b.dataset.hour) { S.hour = +b.dataset.hour; return render(); }
+  if (b.dataset.bestday) { S.bestDay = +b.dataset.bestday; return render(); }
+  if (b.dataset.mapday) { S.mapDay = +b.dataset.mapday; S.mapHour = 'day'; return render(); }
+  if (b.dataset.maplayer) { S.mapOpts[b.dataset.maplayer] = !S.mapOpts[b.dataset.maplayer]; store.set('mapOpts', S.mapOpts); return render(); }
+  if (b.dataset.mapbase) { S.mapOpts.base = b.dataset.mapbase; store.set('mapOpts', S.mapOpts); return render(); }
   if (b.dataset.model !== undefined) {
     S.dmodel = b.dataset.model || null;
     S.hour = null;
@@ -671,11 +958,13 @@ document.addEventListener('click', async (e) => {
   }
   const act = b.dataset.act;
   if (!act) return;
+  S.shareOpen = act.startsWith('share');
   if (act === 'refresh') {
     loadOverview(true);
     loadAladin();
-    const r = route(); const s = r.site && findSite(r.site);
-    if (s) loadDetail(s, true);
+    loadObs();
+    const s = currentSite();
+    if (s) { loadDetail(s, true); loadEnsemble(s, true); }
   } else if (act === 'settings') openSettings();
   else if (act === 'install' && installEvt) {
     const evt = installEvt;
@@ -684,24 +973,32 @@ document.addEventListener('click', async (e) => {
     try { await evt.userChoice; } catch (err) { /* dismissed */ }
     render();
   } else if (act === 'install-hide') { store.set('installHide', Date.now() + 30 * 24 * 3600e3); render(); }
-  else if (act === 'share') openShare();
-  else if (act === 'share-send') {
-    try { await navigator.share({ title: 'Termika', text: t().shareMsg, url: APP_URL }); } catch (err) { /* closed */ }
+  else if (act === 'share') openShare({ url: APP_URL, title: t().share, hint: t().shareText, text: t().shareMsg, qr: true });
+  else if (act === 'share-site') {
+    const s = currentSite(), r = route();
+    if (s) openShare({ url: APP_URL + hrefFor(s, r.day), title: t().shareForecast, hint: t().shareForecastText, text: `${s.name} · Termika`, qr: false });
+  } else if (act === 'share-send') {
+    const c = S.shareCtx;
+    try { await navigator.share({ title: 'Termika', text: c.text, url: c.url }); } catch (err) { /* closed */ }
   } else if (act === 'share-copy') {
-    try { await navigator.clipboard.writeText(APP_URL); openShare(t().copied, true); }
+    try { await navigator.clipboard.writeText(S.shareCtx.url); openShare(null, t().copied, true); }
     catch (err) {
-      openShare(t().copyFail, false);
+      openShare(null, t().copyFail, false);
       const r = document.createRange(); r.selectNodeContents($('#share-url'));
       const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
     }
-  }
-  else if (act === 'close') { $('#dlg').close(); form = null; }
+  } else if (act === 'close') { $('#dlg').close(); form = null; }
   else if (act === 'fav') {
     const id = route().site;
+    if (!id) return;
     S.favs = S.favs.includes(id) ? S.favs.filter((x) => x !== id) : [...S.favs, id];
     store.set('favs', S.favs); render();
   } else if (act === 'add-site') openForm(null);
-  else if (act === 'edit-site') openForm(S.custom.find((s) => s.id === b.dataset.id));
+  else if (act === 'add-site-at') {
+    const elev = b.dataset.elev != null ? +b.dataset.elev : null;
+    openForm({ id: null, name: '', lat: +b.dataset.lat, lon: +b.dataset.lon, elev, dirs: [], note: '' });
+    if (elev == null) lookupElev();
+  } else if (act === 'edit-site') openForm(S.custom.find((s) => s.id === b.dataset.id));
   else if (act === 'del-site') {
     S.custom = S.custom.filter((s) => s.id !== form.id);
     S.favs = S.favs.filter((x) => x !== form.id);
@@ -718,19 +1015,30 @@ document.addEventListener('click', async (e) => {
     );
   } else if (act === 'elev') {
     readForm();
-    if (!isFinite(form.lat) || !isFinite(form.lon)) return rerenderForm(t().vCoord);
-    try {
-      const r = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${form.lat}&longitude=${form.lon}`);
-      const j = await r.json();
-      form.elev = Math.round(j.elevation[0]);
-      $('#dlg').innerHTML = siteFormHtml();
-    } catch (err) { rerenderForm(t().elevFail); }
+    lookupElev();
   }
-});
+}
 
 document.addEventListener('change', (e) => {
-  if (e.target.name === 'level') setPref('profile', e.target.value);
-  if (e.target.name === 'model') setPref('model', e.target.value);
+  const el = e.target;
+  if (el.name === 'level') {
+    setPref('profile', el.value);
+    const box = $('.limits');
+    if (box) box.hidden = el.value !== 'custom';
+  }
+  if (el.name === 'model') setPref('model', el.value);
+  if (el.id === 'map-hour') { S.mapHour = el.value === 'day' ? 'day' : +el.value; render(); }
+  if (el.id && el.id.startsWith('lim-')) {
+    const v = {};
+    for (const k of ['wind', 'gust', 'spread', 'air']) {
+      const n = Math.round(+$('#lim-' + k).value);
+      v[k] = Number.isFinite(n) && n >= 1 && n <= 80 ? n : M.PROFILES.custom[k];
+    }
+    S.limits = v; store.set('limits', v);
+    M.PROFILES.custom = v;
+    reanalyze();
+    render();
+  }
 });
 
 document.addEventListener('submit', (e) => {
@@ -749,17 +1057,23 @@ document.addEventListener('submit', (e) => {
   loadOverview();
 });
 
-$('#dlg').addEventListener('close', () => { form = null; });
+$('#dlg').addEventListener('close', () => { form = null; S.shareOpen = false; });
 
 // ---------- render ----------
 function render() {
   document.documentElement.lang = S.lang;
   const r = route();
-  const site = r.site && findSite(r.site);
   const keep = {};
   for (const id of ['hscroll', 'ascroll']) { const el = $('#' + id); if (el) keep[id] = el.scrollLeft; }
-  $('#app').innerHTML = header() + (site ? detailView(site, r.day) : overview()) + footer();
-  document.title = site ? `${site.name} · Termika` : 'Termika';
+  let body, title = 'Termika';
+  if (r.view === 'map') { body = mapView(); title = `${t().viewMap} · Termika`; }
+  else if (r.view === 'site') {
+    const site = currentSite(r);
+    body = site ? detailView(site, r.day) : pointPending(r);
+    if (site) title = `${site.name} · Termika`;
+  } else body = overview();
+  $('#app').innerHTML = header(r) + body + footer();
+  document.title = title;
   for (const id of ['hscroll', 'ascroll']) {
     const sc = $('#' + id);
     if (!sc) continue;
@@ -767,22 +1081,38 @@ function render() {
     else { const cell = sc.querySelector('th.sel'); if (cell) sc.scrollLeft = Math.max(0, cell.offsetLeft - sc.clientWidth / 2); }
   }
   S.keepScroll = true;
+  if (r.view === 'map' && S.ov) { const slot = $('#map-slot'); if (slot) showMap(slot, mapData()); }
 }
 
 function onRoute() {
   S.hour = null; S.keepScroll = false;
   const r = route();
-  if (r.site !== S.lastSite) { S.dmodel = null; S.lastSite = r.site; }
-  const site = r.site && findSite(r.site);
+  const sid = r.point ? 'pt:' + r.point.key : r.site || null;
+  if (sid !== S.lastSite) { S.dmodel = null; S.lastSite = sid; }
+  if (r.view === 'map') S.mapDay = r.day || S.mapDay;
+  if (r.view === 'site') {
+    window.scrollTo(0, 0);
+    if (r.point && typeof S.points[r.point.key] !== 'number') {
+      render();
+      if (S.points[r.point.key] !== 'error') ensurePoint(r.point);
+      return;
+    }
+  }
   render();
-  if (site) { loadDetail(site); window.scrollTo(0, 0); }
+  const site = r.view === 'site' && currentSite(r);
+  if (site) { loadDetail(site); loadEnsemble(site); }
 }
 
 window.addEventListener('hashchange', onRoute);
 onRoute();
 loadOverview();
 loadAladin();
-setInterval(() => { if (document.visibilityState === 'visible' && S.ov && Date.now() - S.ov.t > TTL) loadOverview(); }, 60 * 1000);
+loadObs();
+setInterval(() => {
+  if (document.visibilityState !== 'visible') return;
+  if (S.ov && Date.now() - S.ov.t > TTL) loadOverview();
+  if (!S.obsAt || Date.now() - S.obsAt > 10 * 60 * 1000) loadObs();
+}, 60 * 1000);
 
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; render(); });
 window.addEventListener('appinstalled', () => { installEvt = null; render(); });

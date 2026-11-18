@@ -1,12 +1,13 @@
-# Publishes Termika to GitHub Pages and refreshes the ALADIN-SI extract.
-# ARSO publishes ALADIN-SI runs (00/06/12/18 UTC) about 3 hours after run time.
-name: Publish site and refresh ALADIN-SI
+# Publishes Termika to GitHub Pages and refreshes the data browsers can't fetch themselves:
+# - live stations every run (DHMZ hourly, METAR half-hourly),
+# - ALADIN-SI only when ARSO has published a new run (00/06/12/18 UTC, about 3 hours later).
+name: Publish site and refresh data
 
 on:
   push:
     branches: [main]
   schedule:
-    - cron: '35 3,9,15,21 * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -22,19 +23,21 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Keep the last published ALADIN-SI file in case ARSO is unreachable
+      - uses: actions/checkout@v7
+      - name: Keep the last published data in case a source is unreachable
         run: |
           mkdir -p data
-          curl -sfL --max-time 60 "https://pboric.github.io/termika/data/aladin-si.json" -o data/aladin-si.json || rm -f data/aladin-si.json
-      - name: 'Extract ALADIN-SI for the launch sites (source: ARSO)'
+          for f in aladin-si.json obs.json; do
+            curl -sfL --max-time 60 "https://pboric.github.io/termika/data/$f" -o "data/$f" || rm -f "data/$f"
+          done
+      - name: 'ALADIN-SI for the launch sites (source: ARSO), only when a new run is out'
         continue-on-error: true
-        run: python3 tools/aladin_si.py
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+        run: python3 tools/aladin_si.py --skip-if-same
+      - name: 'Live stations (source: DHMZ; METAR: NOAA)'
+        continue-on-error: true
+        run: python3 tools/obs.py
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: .
 
@@ -46,4 +49,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
