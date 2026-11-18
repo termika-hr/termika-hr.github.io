@@ -295,6 +295,11 @@ button.cmp-row.on { border-color: var(--ink); background: var(--surface-2); }
 .install > svg { width: 40px; height: 40px; flex: none; }
 .install p { margin: 0; flex: 1 1 220px; min-width: 0; }
 .inline-ic { width: 1.1em; height: 1.1em; vertical-align: -0.2em; }
+.steps { margin: 0; padding-left: 1.4em; display: grid; gap: 10px; font-size: 1.02rem; }
+.steps li::marker { font: 700 1rem var(--f-display); color: var(--accent); }
+kbd { display: inline-block; min-width: 1.6em; padding: 0 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; background: var(--surface-2); font: 700 0.95em/1.4 var(--f-body); text-align: center; }
+.inst-result { display: flex; gap: 12px; align-items: center; margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
+.inst-result img { border-radius: 13px; flex: none; }
 .share-qr { width: 200px; height: 200px; max-width: 100%; display: block; margin: 0 auto; border-radius: 8px; border: 1px solid var(--line); background: #FFFFFF; }
 .share-url { margin: 0; text-align: center; font: 600 1.1rem var(--f-display); letter-spacing: 0.02em; overflow-wrap: anywhere; user-select: all; }
 

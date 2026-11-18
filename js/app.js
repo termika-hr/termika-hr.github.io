@@ -345,10 +345,35 @@ function installBanner() {
   if (isStandalone() || Date.now() < store.get('installHide', 0)) return '';
   let body;
   if (installEvt) body = `<p>${t().instText}</p><button type="button" class="btn primary" data-act="install">${t().instBtn}</button>`;
-  else if (isIOS()) body = `<p>${t().instIOS(IC_SHARE_INLINE)}</p>`;
-  else if (isMobile()) body = `<p>${t().instAndroid}</p>`;
+  else if (isMobile()) body = `<p>${t().instText}</p><button type="button" class="btn primary" data-act="install-how">${t().instHow}</button>`;
   else return '';
   return `<section class="install" aria-label="${t().instTitle}">${IC.logo}${body}<button type="button" class="btn small" data-act="install-hide">${t().instLater}</button></section>`;
+}
+
+// Which menu to describe: the browser decides how a page gets onto the home screen.
+function browserKind() {
+  const ua = navigator.userAgent;
+  if (isIOS()) return 'ios';
+  if (/SamsungBrowser/.test(ua)) return 'samsung';
+  if (/Firefox/.test(ua)) return 'firefox';
+  if (/EdgA|OPR|Opera|YaBrowser|MiuiBrowser/.test(ua)) return 'other';
+  if (/Android/.test(ua)) return 'chrome';
+  return 'other';
+}
+function openInstallHelp() {
+  form = null;
+  const kind = browserKind();
+  const steps = kind === 'ios' ? t().instSteps.ios(IC_SHARE_INLINE) : t().instSteps[kind];
+  const d = $('#dlg');
+  d.innerHTML = `<div class="dlg">
+    <div class="dlg-head"><h2 id="dlg-title">${t().instTitle}</h2><button type="button" class="icon-btn" data-act="close" aria-label="${t().close}">${IC.close}</button></div>
+    <ol class="steps">${steps.map((s) => `<li>${s}</li>`).join('')}</ol>
+    <p class="inst-result"><img src="icons/icon-192.png" alt="" width="56" height="56"><span>${t().instDone}</span></p>
+    <p class="hint" style="margin:0">${t().instNote}</p>
+    <p class="hint" style="margin:0">${t().instWhy}</p>
+    <div class="btns"><button type="button" class="btn primary" data-act="close">${t().close}</button></div>
+  </div>`;
+  if (!d.open) d.showModal();
 }
 
 function shareHtml(msg = '', ok = true) {
@@ -984,7 +1009,8 @@ async function handleClick(b) {
     evt.prompt();
     try { await evt.userChoice; } catch (err) { /* dismissed */ }
     render();
-  } else if (act === 'install-hide') { store.set('installHide', Date.now() + 30 * 24 * 3600e3); render(); }
+  } else if (act === 'install-how') openInstallHelp();
+  else if (act === 'install-hide') { store.set('installHide', Date.now() + 30 * 24 * 3600e3); render(); }
   else if (act === 'share') openShare({ url: APP_URL, title: t().share, hint: t().shareText, text: t().shareMsg, qr: true });
   else if (act === 'share-site') {
     const s = currentSite(), r = route();
