@@ -17,6 +17,7 @@ const store = {
 const S = {
   lang: store.get('lang', 'hr'),
   units: store.get('units', 'kmh'),
+  theme: store.get('theme', 'auto'),  // auto | light | dark
   profile: store.get('profile', 'student'),
   model: store.get('model', 'icon_seamless'),
   custom: store.get('custom', []),
@@ -940,6 +941,7 @@ function settingsHtml() {
   return `<div class="dlg">
     <div class="dlg-head"><h2 id="dlg-title">${t().settingsTitle}</h2><button type="button" class="icon-btn" data-act="close" aria-label="${t().close}">${IC.close}</button></div>
     <div class="field"><span class="lab">${t().lang}</span>${seg('lang', S.lang, [['hr', 'Hrvatski'], ['en', 'English']])}</div>
+    <div class="field"><span class="lab">${t().theme}</span>${seg('theme', S.theme, [['auto', t().themes.auto], ['light', t().themes.light], ['dark', t().themes.dark]])}</div>
     <div class="field"><span class="lab">${t().units}</span>${seg('units', S.units, [['kmh', 'km/h'], ['ms', 'm/s'], ['kt', 'kt']])}</div>
     <div class="field"><span class="lab">${t().level}</span><div class="choice">${levels}</div>${limits}</div>
     <div class="field"><span class="lab">${t().modelPick}</span><div class="choice">${models}</div></div>
@@ -1158,8 +1160,15 @@ document.addEventListener('submit', (e) => {
 $('#dlg').addEventListener('close', () => { form = null; S.shareOpen = false; });
 
 // ---------- render ----------
+function applyTheme() {
+  const root = document.documentElement;
+  if (S.theme === 'light' || S.theme === 'dark') root.dataset.theme = S.theme;
+  else delete root.dataset.theme;
+}
+
 function render() {
   document.documentElement.lang = S.lang;
+  applyTheme();
   const r = route();
   const keep = {};
   for (const id of ['hscroll', 'ascroll']) { const el = $('#' + id); if (el) keep[id] = el.scrollLeft; }
