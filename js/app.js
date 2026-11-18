@@ -1017,7 +1017,7 @@ function links(site) {
       ${a('https://meteo.hr/naslovnica_radarska-slika.php?tab=radari', t().lRadar)}
       ${a('https://meteo.hr/podaci.php?section=podaci_mjerenja&amp;param=satelit', t().lSat)}
       ${a(`https://map.blitzortung.org/#9/${lat}/${lon}`, t().lLightning)}
-      ${a('https://airspace.xcontest.org/', t().lAirspace)}
+      ${a('https://www.openaip.net/map', t().lAirspace)}
       ${a('http://amc.crocontrol.hr/', t().lAmc)}
       ${a(`https://thermal.kk7.ch/#${lat},${lon},13`, t().lThermals)}
       ${a(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=14/${lat}/${lon}`, t().map)}
