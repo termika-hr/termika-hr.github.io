@@ -81,17 +81,19 @@ def fetch_all(key, params):
         page += 1
 
 def fetch(key):
-    # Area around Croatia first; if the API rejects that query, Croatia plus its neighbours by country.
-    bbox = ','.join(map(str, BBOX))
-    for params in ({'bbox': bbox, 'limit': 1000}, {'bbox': bbox, 'limit': 100}):
-        try:
-            return fetch_all(key, params)
-        except urllib.error.HTTPError as e:
-            if e.code in (401, 403): raise SystemExit(f'openAIP refused the API key (HTTP {e.code})')
-            print(f'openAIP {params}: HTTP {e.code}', file=sys.stderr)
+    # By country (the API refuses bbox queries for this key): Croatia and its neighbours,
+    # later trimmed to the area around Croatia. 1000 per page if allowed, else 100.
     seen, items = set(), []
-    for c in ('HR', 'SI', 'HU', 'BA', 'RS', 'ME', 'IT'):
-        for it in fetch_all(key, {'country': c, 'limit': 100}):
+    for c in ('HR', 'SI', 'BA', 'HU', 'RS', 'ME', 'IT', 'AT'):
+        for limit in (1000, 100):
+            try:
+                got = fetch_all(key, {'country': c, 'limit': limit})
+                break
+            except urllib.error.HTTPError as e:
+                print(f'openAIP {c} limit {limit}: HTTP {e.code}', file=sys.stderr)
+                got = []
+        print(f'openAIP {c}: {len(got)} airspaces', file=sys.stderr)
+        for it in got:
             if it.get('_id') not in seen: seen.add(it.get('_id')); items.append(it)
     return items
 
