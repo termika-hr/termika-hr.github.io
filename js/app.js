@@ -464,12 +464,12 @@ function overview() {
 }
 
 // ---------- map view ----------
+// kk7 thermal layer. All-year data: the seasonal layers are nearly empty over Croatia outside
+// summer (few flights), so the time of day is the only filter used.
 function kk7Layer(date, hour, sunrise) {
-  const mon = +date.slice(5, 7);
-  const season = [12, 1, 2].includes(mon) ? 'jan' : [3, 4, 5].includes(mon) ? 'apr' : [6, 7, 8].includes(mon) ? 'jul' : 'oct';
-  if (hour === 'day') return `thermals_${season}_all`;
+  if (hour === 'day') return 'thermals_all_all';
   const after = hour - (sunrise ? +sunrise.slice(11, 13) + +sunrise.slice(14, 16) / 60 : 7);
-  return `thermals_${season}_${after < 5 ? '04' : after < 8 ? '07' : '10'}`;
+  return `thermals_all_${after < 5 ? '04' : after < 8 ? '07' : '10'}`;
 }
 
 function mapView() {
@@ -493,7 +493,8 @@ function mapView() {
   return `<section class="mapbar"><div class="chips" role="group">${chips}</div><div class="mapbar-row">${hourSel}${toggles}</div></section>
     <div id="map-slot" class="map-slot"></div>
     <div class="legend">${legend}<span>${t().mapHint}</span></div>
-    ${o.thermals ? `<p class="hint">${t().mapThermalNote}</p>` : ''}`;
+    ${o.thermals ? `<p class="hint">${t().mapThermalNote}</p>` : ''}
+    ${o.stations ? obsLateNote() : ''}`;
 }
 
 function freshStations() {
@@ -501,7 +502,14 @@ function freshStations() {
   const now = Date.now();
   return S.obs.stations
     .map((s) => ({ ...s, age: (now - Date.parse(s.time)) / 60000 }))
-    .filter((s) => s.ws != null && s.age < 180 && Number.isFinite(s.lat));
+    .filter((s) => s.ws != null && s.age < 360 && Number.isFinite(s.lat));
+}
+// Station data older than 2 hours is still shown, but marked as late.
+const OBS_LATE = 120;
+function obsLateNote() {
+  if (!S.obs || !S.obs.stations.length) return '';
+  const newest = Math.max(...S.obs.stations.map((s) => Date.parse(s.time)));
+  return (Date.now() - newest) / 60000 > OBS_LATE ? `<p class="hint v-warn">${t().obsOld(timeStr(newest))}</p>` : '';
 }
 
 function stationWind(s) {
@@ -529,7 +537,7 @@ function mapData() {
   });
   const stations = S.mapOpts.stations ? freshStations().map((s) => ({
     lat: s.lat, lon: s.lon, name: s.name,
-    icon: `<div class="stn">${s.ws >= 1 ? arrow(s.wd) : ''}<b>${s.ws < 1 ? '0' : wNum(s.ws)}</b></div>`,
+    icon: `<div class="stn${s.age > OBS_LATE ? ' old' : ''}">${s.ws >= 1 ? arrow(s.wd) : ''}<b>${s.ws < 1 ? '0' : wNum(s.ws)}</b></div>`,
     popup: `<div class="pop"><b>${esc(s.name)}</b><span class="dim">${s.src}${s.elev ? ` · ${Math.round(s.elev)} m` : ''} · ${t().ago(Math.round(s.age))}</span><span>${stationWind(s)}${s.t != null ? ` · ${Math.round(s.t)} °C` : ''}</span></div>`,
   })) : [];
   const ref = first[di];
@@ -537,6 +545,7 @@ function mapData() {
     sites, stations, base: S.mapOpts.base,
     kk7: S.mapOpts.thermals && ref ? kk7Layer(ref.date, hour, ref.sunrise) : null,
     failText: t().mapFail,
+    zoomHint: t().mapZoomHint, zoomBtn: t().mapZoomBtn,
     onAction: handleClick, // Leaflet stops clicks inside popups from reaching the document
     pointPopup: (lat, lon) => `<div class="pop"><b>${t().mapPoint}</b><span class="dim num">${lat.toFixed(3)}, ${lon.toFixed(3)}</span><a href="#point=${lat.toFixed(4)},${lon.toFixed(4)}&day=${di}">${t().mapOpen} →</a><button type="button" class="btn small" data-act="add-site-at" data-lat="${lat.toFixed(4)}" data-lon="${lon.toFixed(4)}">${t().pointSave}</button></div>`,
   };
@@ -615,9 +624,9 @@ function liveSection(site) {
       <span class="live-name"><b>${esc(s.name)}</b><small>${s.elev ? `${Math.round(s.elev)} m · ` : ''}${Math.round(s.d)} km · ${s.src}</small></span>
       <span class="live-wind">${stationWind(s)}</span>
       <span class="dim num">${s.t != null ? `${Math.round(s.t)} °C` : ''}</span>
-      <span class="dim">${t().ago(Math.round(s.age))}</span>
+      <span class="${s.age > OBS_LATE ? 'v-warn' : 'dim'}">${t().ago(Math.round(s.age))}</span>
     </li>`).join('');
-  return `<section class="card"><h2>${t().live}</h2><p class="hint">${t().liveHint}</p>${rows ? `<ul class="live">${rows}</ul>` : `<p class="hint" style="margin:0">${t().liveNone}</p>`}</section>`;
+  return `<section class="card"><h2>${t().live}</h2><p class="hint">${t().liveHint}</p>${obsLateNote()}${rows ? `<ul class="live">${rows}</ul>` : `<p class="hint" style="margin:0">${t().liveNone}</p>`}</section>`;
 }
 
 function detailView(site, di) {

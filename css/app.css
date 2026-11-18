@@ -430,6 +430,8 @@ dialog::backdrop { background: rgba(8, 14, 20, 0.55); }
 .tog[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: var(--surface-2); }
 .map-slot { position: relative; }
 .map { height: min(70vh, 640px); min-height: 380px; border-radius: var(--r); border: 1px solid var(--line); overflow: hidden; background: var(--surface-2); }
+.map-notice { display: flex; gap: 8px; align-items: center; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; max-width: 220px; font-size: 0.85rem; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
+.map-notice[hidden] { display: none; }
 .map-fail { padding: 40px 16px; color: var(--muted); text-align: center; border: 1px dashed var(--line); border-radius: var(--r); margin: 0; }
 .leaflet-container { font: 400 14px/1.4 var(--f-body); }
 .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--surface); color: var(--ink); }
@@ -448,6 +450,7 @@ dialog::backdrop { background: rgba(8, 14, 20, 0.55); }
   font: 700 11px/1 var(--f-display); white-space: nowrap;
 }
 .stn svg { width: 12px; height: 12px; }
+.stn.old { opacity: 0.55; }
 .stn svg path { fill: var(--sky); }
 
 @media (max-width: 560px) {
