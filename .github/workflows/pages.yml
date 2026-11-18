@@ -1,0 +1,49 @@
+# Publishes Termika to GitHub Pages and refreshes the ALADIN-SI extract.
+# ARSO publishes ALADIN-SI runs (00/06/12/18 UTC) about 3 hours after run time.
+name: Publish site and refresh ALADIN-SI
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '35 3,9,15,21 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Keep the last published ALADIN-SI file in case ARSO is unreachable
+        run: |
+          mkdir -p data
+          curl -sfL --max-time 60 "https://pboric.github.io/termika/data/aladin-si.json" -o data/aladin-si.json || rm -f data/aladin-si.json
+      - name: 'Extract ALADIN-SI for the launch sites (source: ARSO)'
+        continue-on-error: true
+        run: python3 tools/aladin_si.py
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
