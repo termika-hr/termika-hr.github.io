@@ -513,25 +513,65 @@ function mapView() {
 }
 
 // ---------- wind streamlines ----------
+// GitHub prepares the wind field a few times a day (tools/wind.py: ICON 0.25° for the whole
+// area; tools/aladin_si.py: ALADIN-SI ~9 km over the north) as static files, so streamlines
+// cost no forecast requests. Only when those files are missing or older than 8 hours does
+// the browser download a coarser field from Open-Meteo itself.
+const WIND_FRESH = 8 * 3600e3;
 function windModel() { return M.MODELS[S.model].local ? 'icon_seamless' : S.model; }
-// One wind download per model covers every day, hour and height; it is kept for 3 hours.
-function windKey() { return `${windModel()}|${M.WIND_GRID.step}`; }
+function windKey() { return `static|${S.mapOpts.windLevel}`; }
+async function getJson(url) {
+  const r = await fetch(url, { cache: 'no-cache' });
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+// Decode one prepared file: signed bytes in base64, [hour][point], in steps of `unit` km/h.
+function unpackWind(doc) {
+  const raw = Uint8Array.from(atob(doc.u), (c) => c.charCodeAt(0)), rawV = Uint8Array.from(atob(doc.v), (c) => c.charCodeAt(0));
+  return { ...doc, u: new Int8Array(raw.buffer), v: new Int8Array(rawV.buffer) };
+}
 async function loadWind() {
-  const key = windKey();
+  const key = windKey(), level = S.mapOpts.windLevel;
   if (S.wind && (S.wind.key === key || S.wind.loading === key)) return;
-  const cached = store.get('wind', null);
-  if (cached && cached.key === key && Date.now() - cached.t < 3 * 3600e3) { S.wind = { ...cached, fields: {} }; render(); return; }
   S.wind = { key: null, loading: key };
+  let icon = null, aladin = null;
   try {
-    const data = await M.fetchWindGrid(windModel());
-    S.wind = { key, t: Date.now(), data, fields: {} };
-    store.set('wind', { key, t: S.wind.t, data });
-  } catch (e) {
-    if (cached && cached.key === key) S.wind = { ...cached, fields: {} };
-    else S.wind = { key: null, error: key, reason: e.status === 429 ? t().limitHit : t().mapWindFail };
-    if (e.status === 429) S.limitHit = true;
+    icon = unpackWind(await getJson(`data/wind/icon-${level}.json`));
+    if (Date.now() - Date.parse(icon.generated) > WIND_FRESH) icon = null;
+  } catch (e) { icon = null; }
+  try {
+    aladin = unpackWind(await getJson(`data/wind/aladin-${level}.json`));
+    if (Date.now() - Date.parse(aladin.run) > 30 * 3600e3) aladin = null;
+  } catch (e) { aladin = null; }
+  if (icon) {
+    S.wind = { key, kind: 'static', icon, aladin, fields: {} };
+  } else {
+    // Fallback: the browser fetches a coarse ICON field (one request, kept 3 hours).
+    const fkey = `direct|${windModel()}|${M.WIND_GRID.step}`;
+    const cached = store.get('wind', null);
+    try {
+      let data;
+      if (cached && cached.key === fkey && Date.now() - cached.t < 3 * 3600e3) data = cached.data;
+      else { data = await M.fetchWindGrid(windModel()); store.set('wind', { key: fkey, t: Date.now(), data }); }
+      S.wind = { key, kind: 'direct', direct: data, aladin, fields: {} };
+    } catch (e) {
+      if (cached && cached.key === fkey) S.wind = { key, kind: 'direct', direct: cached.data, aladin, fields: {} };
+      else if (aladin) S.wind = { key, kind: 'aladin', aladin, fields: {} };
+      else S.wind = { key: null, error: key, reason: e.status === 429 ? t().limitHit : t().mapWindFail };
+      if (e.status === 429) S.limitHit = true;
+    }
   }
   if (route().view === 'map') render();
+}
+function gridAt(doc, time) {
+  const idx = doc.times.indexOf(time);
+  if (idx < 0) return null;
+  const n = doc.grid.nLat * doc.grid.nLon, u = new Float32Array(n), v = new Float32Array(n);
+  for (let k = 0; k < n; k++) {
+    const a = doc.u[idx * n + k], b = doc.v[idx * n + k];
+    if (a === -128 || b === -128) { u[k] = NaN; v[k] = NaN; } else { u[k] = a * doc.unit; v[k] = b * doc.unit; }
+  }
+  return { ...doc.grid, u, v };
 }
 // The same object for the same hour and height, so re-renders don't restart the animation.
 function windField(date, hour) {
@@ -539,12 +579,26 @@ function windField(date, hour) {
   const key = windKey();
   if (!S.wind || (S.wind.key !== key && S.wind.loading !== key && S.wind.error !== key)) { loadWind(); return null; }
   if (S.wind.key !== key) return null;
-  const h = hour === 'day' ? 13 : hour;
-  const idx = S.wind.data.times.indexOf(`${date}T${pad2(h)}:00`);
-  if (idx < 0) return null;
-  const fk = `${S.mapOpts.windLevel}|${idx}`;
-  if (!S.wind.fields[fk]) S.wind.fields[fk] = M.windAtHour(S.wind.data, S.mapOpts.windLevel, idx);
-  return S.wind.fields[fk];
+  const time = `${date}T${pad2(hour === 'day' ? 13 : hour)}:00`;
+  if (S.wind.fields[time] !== undefined) return S.wind.fields[time];
+  const grids = [];
+  if (S.wind.aladin) { const g = gridAt(S.wind.aladin, time); if (g) grids.push(g); }
+  if (S.wind.kind === 'static') { const g = gridAt(S.wind.icon, time); if (g) grids.push(g); }
+  if (S.wind.kind === 'direct') {
+    const idx = S.wind.direct.times.indexOf(time);
+    if (idx >= 0) grids.push(M.windAtHour(S.wind.direct, S.mapOpts.windLevel, idx));
+  }
+  S.wind.fields[time] = grids.length ? { grids } : null;
+  return S.wind.fields[time];
+}
+function windSource() {
+  const w = S.wind;
+  if (!w || !w.key) return '';
+  const parts = [];
+  if (w.kind === 'static') parts.push(t().windSrcIcon);
+  if (w.kind === 'direct') parts.push(t().windSrcDirect);
+  if (w.aladin) parts.push(t().windSrcAladin);
+  return parts.join(' · ');
 }
 function windLegend() {
   let lo = 0;
@@ -554,8 +608,9 @@ function windLegend() {
     return `<span><i class="wind-sw" style="background:${col}"></i>${label}</span>`;
   }).join('');
   const state = S.wind && S.wind.error ? `<span class="v-warn">${S.wind.reason}</span>` : !S.wind || !S.wind.key ? `<span>${t().loading}</span>` : '';
+  const src = windSource();
   return `<div class="legend wind-legend"><span><b>${t().mapWind}</b> (${unitLabel()}, ${t().windLevels[S.mapOpts.windLevel]}${S.mapHour === 'day' ? ', 13:00' : ''})</span>${parts}${state}</div>
-    <p class="hint">${t().mapWindNote}</p>`;
+    <p class="hint">${t().mapWindNote}${src ? ` ${t().windSrc}: ${src}.` : ''}</p>`;
 }
 
 function freshStations() {

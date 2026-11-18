@@ -1,6 +1,8 @@
 # Publishes Termika to GitHub Pages and refreshes the data browsers can't fetch themselves:
 # - live stations every run (DHMZ hourly, METAR half-hourly),
-# - ALADIN-SI only when ARSO has published a new run (00/06/12/18 UTC, about 3 hours later).
+# - ALADIN-SI only when ARSO has published a new run (00/06/12/18 UTC, about 3 hours later),
+#   including its ~9 km wind field for the map,
+# - the ICON wind field for the map's streamlines every 3 hours.
 name: Publish site and refresh data
 
 on:
@@ -26,13 +28,17 @@ jobs:
       - uses: actions/checkout@v7
       - name: Keep the last published data in case a source is unreachable
         run: |
-          mkdir -p data
-          for f in aladin-si.json obs.json; do
+          mkdir -p data/wind
+          for f in aladin-si.json obs.json wind/icon-10m.json wind/icon-925.json wind/icon-850.json wind/icon-700.json \
+                   wind/aladin-10m.json wind/aladin-925.json wind/aladin-850.json wind/aladin-700.json; do
             curl -sfL --max-time 60 "https://termika-hr.github.io/data/$f" -o "data/$f" || rm -f "data/$f"
           done
       - name: 'ALADIN-SI for the launch sites (source: ARSO), only when a new run is out'
         continue-on-error: true
         run: python3 tools/aladin_si.py --skip-if-same
+      - name: 'Wind field for the map (DWD ICON via Open-Meteo), when older than 3 hours'
+        continue-on-error: true
+        run: python3 tools/wind.py --max-age-hours 3
       - name: 'Live stations (source: DHMZ; METAR: NOAA)'
         continue-on-error: true
         run: python3 tools/obs.py

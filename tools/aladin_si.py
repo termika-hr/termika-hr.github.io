@@ -15,7 +15,7 @@ height (Haurwitz clear sky × Kasten–Czeplak cloud factor).
 
 Usage: python3 tools/aladin_si.py [--zip local.zip] [--out data/aladin-si.json]
 """
-import argparse, datetime as dt, io, json, math, re, sys, urllib.request, zipfile
+import argparse, array, base64, datetime as dt, io, json, math, re, sys, urllib.request, zipfile
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -120,19 +120,35 @@ def radiation(lat, lon, when, cloud):
     clear = 1098 * cz * math.exp(-0.057 / cz)
     return clear * (1 - 0.75 * cloud ** 3.4)
 
+# ---------- wind field for the map ----------
+# Every second grid point (about 9 km), local hours 06–20, levels 10 m / 925 / 850 / 700 hPa.
+# Same file format as tools/wind.py: u/v in units of 2 km/h as signed bytes in base64, [hour][point].
+WIND_LEVELS = ['10m', 925, 850, 700]
+WIND_HOURS = range(6, 21)
+WIND_STEP = 2
+WIND_UNIT = 2.0
+
+def wind_keys(level):
+    return ((33, 105, 10), (34, 105, 10)) if level == '10m' else ((33, 100, level), (34, 100, level))
+
+def pack(values):
+    a = array.array('b', (max(-127, min(127, round(v / WIND_UNIT))) for v in values))
+    return base64.b64encode(a.tobytes()).decode('ascii')
+
 # ---------- main ----------
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--zip', help='use a downloaded nwp_*.zip instead of fetching the latest run')
     ap.add_argument('--out', default=str(ROOT / 'data' / 'aladin-si.json'))
     ap.add_argument('--skip-if-same', action='store_true', help='do nothing when --out already holds the latest run')
+    ap.add_argument('--wind-dir', default=str(ROOT / 'data' / 'wind'), help='where the map wind files go')
     args = ap.parse_args()
 
     if args.zip:
         blob = Path(args.zip).read_bytes()
     else:
         latest = latest_run()
-        if args.skip_if_same and Path(args.out).exists():
+        if args.skip_if_same and Path(args.out).exists() and (Path(args.wind_dir) / 'aladin-850.json').exists():
             try:
                 have = json.loads(Path(args.out).read_text(encoding='utf-8')).get('run', '')
             except ValueError:
@@ -152,11 +168,13 @@ def main():
     sites = read_sites()
     grid = None
     rows = {}  # site id -> list of per-step dicts
+    wfield = {l: {'times': [], 'u': [], 'v': []} for l in WIND_LEVELS}
     for name in files:
         msgs = list(grib_messages(z.read(name)))
         g = msgs[0]
         if grid is None:
             grid = g
+            wk = [j * g['Ni'] + i for j in range(0, g['Nj'], WIND_STEP) for i in range(0, g['Ni'], WIND_STEP)]
             if g['scan'] != 64: raise ValueError('unexpected scan mode %d' % g['scan'])
             di = (g['Lo2'] - g['Lo1']) / (g['Ni'] - 1); dj = (g['La2'] - g['La1']) / (g['Nj'] - 1)
             inside = []
@@ -170,6 +188,15 @@ def main():
             sites = inside
             rows = {s['id']: [] for s in sites}
         step = max(m['p1'] if m['ltype'] != 1 or m['param'] != 61 else m['p2'] for m in msgs)
+        local = (base + dt.timedelta(hours=step)).astimezone(TZ)
+        if local.hour in WIND_HOURS:
+            by = {(m['param'], m['ltype'], m['level']): m for m in msgs}
+            for l in WIND_LEVELS:
+                ku, kv = wind_keys(l)
+                if ku in by and kv in by:
+                    wfield[l]['times'].append(local.strftime('%Y-%m-%dT%H:00'))
+                    wfield[l]['u'] += [grib_value(by[ku], k) * 3.6 for k in wk]   # m/s -> km/h
+                    wfield[l]['v'] += [grib_value(by[kv], k) * 3.6 for k in wk]
         for s in sites:
             val = {}
             for m in msgs:
@@ -232,6 +259,17 @@ def main():
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(out, separators=(',', ':')), encoding='utf-8')
     print(f"run {out['run']}: {len(sites)} sites, {len(files)} steps -> {args.out}", file=sys.stderr)
+
+    wdir = Path(args.wind_dir); wdir.mkdir(parents=True, exist_ok=True)
+    di = (grid['Lo2'] - grid['Lo1']) / (grid['Ni'] - 1); dj = (grid['La2'] - grid['La1']) / (grid['Nj'] - 1)
+    wgrid = {'lat0': grid['La1'], 'lon0': grid['Lo1'], 'dLat': round(dj * WIND_STEP, 5), 'dLon': round(di * WIND_STEP, 5),
+             'nLat': len(range(0, grid['Nj'], WIND_STEP)), 'nLon': len(range(0, grid['Ni'], WIND_STEP))}
+    for l in WIND_LEVELS:
+        w = wfield[l]
+        doc = {'source': 'ARSO ALADIN-SI', 'run': out['run'], 'generated': out['generated'], 'level': str(l), 'unit': WIND_UNIT,
+               'grid': wgrid, 'times': w['times'], 'u': pack(w['u']), 'v': pack(w['v'])}
+        (wdir / f'aladin-{l}.json').write_text(json.dumps(doc, separators=(',', ':')), encoding='utf-8')
+    print(f"ALADIN-SI wind: {wgrid['nLat']}x{wgrid['nLon']} points, {len(wfield[850]['times'])} hours -> {wdir}", file=sys.stderr)
 
 if __name__ == '__main__':
     main()

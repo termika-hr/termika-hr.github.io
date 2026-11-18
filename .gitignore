@@ -3,3 +3,4 @@ data/obs.json
 __pycache__/
 *.pyc
 .playwright-mcp/
+data/wind/

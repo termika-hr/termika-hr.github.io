@@ -213,15 +213,22 @@ function windClass(L) {
   });
 }
 
-// Bilinear wind (u, v in km/h) at a point, or null outside the grid.
-function sample(f, lat, lon) {
-  const fi = (lon - f.lon0) / f.step, fj = (lat - f.lat0) / f.step;
+// Bilinear wind (u, v in km/h) at a point, or null outside the grid. A field may hold several
+// grids (finest first, e.g. ALADIN-SI over the north, ICON for the rest); the first that covers
+// the point is used.
+function sampleGrid(f, lat, lon) {
+  const dLat = f.dLat || f.step, dLon = f.dLon || f.step;
+  const fi = (lon - f.lon0) / dLon, fj = (lat - f.lat0) / dLat;
   if (fi < 0 || fj < 0 || fi > f.nLon - 1 || fj > f.nLat - 1) return null;
   const i = Math.min(Math.floor(fi), f.nLon - 2), j = Math.min(Math.floor(fj), f.nLat - 2);
   const a = fi - i, b = fj - j, k = j * f.nLon + i;
   const mix = (A) => (A[k] * (1 - a) + A[k + 1] * a) * (1 - b) + (A[k + f.nLon] * (1 - a) + A[k + f.nLon + 1] * a) * b;
   const u = mix(f.u), v = mix(f.v);
   return Number.isNaN(u) || Number.isNaN(v) ? null : [u, v];
+}
+function sample(f, lat, lon) {
+  for (const g of f.grids || [f]) { const w = sampleGrid(g, lat, lon); if (w) return w; }
+  return null;
 }
 
 function syncWind(L, wind) {
