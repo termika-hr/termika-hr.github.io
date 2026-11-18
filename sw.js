@@ -1,10 +1,10 @@
 // Termika service worker: keeps the app usable offline. Forecast data is cached by the app itself.
-const CACHE = 'termika-v11';
+const CACHE = 'termika-v12';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest',
   'css/app.css', 'css/fonts.css',
   'js/app.js', 'js/meteo.js', 'js/sites.js', 'js/i18n.js', 'js/map.js',
-  'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/qr.svg',
+  'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png', 'icons/qr.svg',
   "fonts/Barlow-400-latin-ext.woff2",
   "fonts/Barlow-400-latin.woff2",
   "fonts/Barlow-500-latin-ext.woff2",

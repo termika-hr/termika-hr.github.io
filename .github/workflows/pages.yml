@@ -28,7 +28,7 @@ jobs:
         run: |
           mkdir -p data
           for f in aladin-si.json obs.json; do
-            curl -sfL --max-time 60 "https://pboric.github.io/termika/data/$f" -o "data/$f" || rm -f "data/$f"
+            curl -sfL --max-time 60 "https://termika-hr.github.io/data/$f" -o "data/$f" || rm -f "data/$f"
           done
       - name: 'ALADIN-SI for the launch sites (source: ARSO), only when a new run is out'
         continue-on-error: true

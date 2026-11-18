@@ -15,7 +15,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parent.parent
-UA = 'termika-obs/1.0 (+https://pboric.github.io/termika/)'
+UA = 'termika-obs/1.0 (+https://termika-hr.github.io/)'
 DHMZ_URL = 'https://vrijeme.hr/hrvatska_n.xml'
 METAR_URL = 'https://aviationweather.gov/api/data/metar?ids={}&format=json&hours=3'
 # Airports in and around Croatia; ids without reports are simply skipped by the API.

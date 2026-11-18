@@ -2,7 +2,7 @@
 
 Prognoza za paragliding u Hrvatskoj · Paragliding forecast for Croatia (HR / EN). Free, no account, no ads.
 
-**App:** https://pboric.github.io/termika/ (on a phone: browser menu → “Add to Home screen”)
+**App:** https://termika-hr.github.io/ (on a phone: browser menu → “Add to Home screen”)
 
 ## What it does
 
