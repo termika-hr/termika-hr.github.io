@@ -224,7 +224,7 @@ async function loadDetail(site, force = false) {
     store.set('dt', c);
     remember(recent.dt, key, c);
     applyDt(c, site);
-    S.dtStatus = 'ok';
+    S.dtStatus = 'ok'; S.limitHit = false;
   } catch (e) {
     S.dtStatus = 'error';
     if (e.status === 429) S.limitHit = true;
@@ -340,7 +340,7 @@ function header(r) {
       ${S.ovStatus === 'loading' ? `<span>${t().loading}</span>` : ''}
     </div>
   </div>
-  ${S.limitHit ? `<div class="banner" role="status">${t().limitHit}</div>` : S.ovStatus === 'error' ? `<div class="banner ${S.ov ? '' : 'err'}" role="status">${S.ov ? t().stale(timeStr(S.ov.t)) : t().error(esc(S.ovError))}</div>` : ''}`;
+  ${S.limitHit && !S.limitHidden ? `<div class="banner banner-row" role="status"><span>${S.ov ? t().limitBanner(timeStr(S.ov.t)) : t().limitBannerNone}</span><button type="button" class="btn small" data-act="limit-hide">${t().ok}</button></div>` : S.limitHit ? '' : S.ovStatus === 'error' ? `<div class="banner ${S.ov ? '' : 'err'}" role="status">${S.ov ? t().stale(timeStr(S.ov.t)) : t().error(esc(S.ovError))}</div>` : ''}`;
 }
 
 function footer() {
@@ -1153,7 +1153,8 @@ async function handleClick(b) {
     evt.prompt();
     try { await evt.userChoice; } catch (err) { /* dismissed */ }
     render();
-  } else if (act === 'install-how') openInstallHelp();
+  } else if (act === 'limit-hide') { S.limitHidden = true; render(); }
+  else if (act === 'install-how') openInstallHelp();
   else if (act === 'install-hide') { store.set('installHide', Date.now() + 30 * 24 * 3600e3); render(); }
   else if (act === 'share') openShare({ url: APP_URL, title: t().share, hint: t().shareText, text: t().shareMsg, qr: true });
   else if (act === 'share-site') {
