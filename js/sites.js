@@ -19,7 +19,7 @@ export const SITES = [
   },
   {
     id: 'kupljenovo-sjever', name: 'Kupljenovo sjever', region: 'north', school: true,
-    lat: 45.9523, lon: 15.7922, elev: 202, dirs: ['NE', 'E', 'SE'], src: NUBI_DIRS,
+    lat: 45.9523, lon: 15.7922, elev: 202, dirs: ['SE', 'S', 'SW'], src: NUBI_DIRS,
   },
   {
     id: 'hrusevec-jug', name: 'Hruševec jug', region: 'north', school: true,
