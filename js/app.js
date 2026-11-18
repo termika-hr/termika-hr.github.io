@@ -2,7 +2,7 @@
 import { SITES, REGIONS } from './sites.js';
 import * as M from './meteo.js';
 import { STR, dirLabel, degLabel } from './i18n.js';
-import { showMap, WIND_COLORS } from './map.js';
+import { showMap, WIND_COLORS, AIR_COLORS } from './map.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -37,8 +37,9 @@ const S = {
   hour: null,
   bestDay: 0,
   mapDay: 0, mapHour: 'day',
-  mapOpts: { thermals: true, stations: true, base: 'topo', wind: false, windLevel: '850', ...store.get('mapOpts', {}) },
+  mapOpts: { thermals: true, stations: true, base: 'topo', wind: false, windLevel: '850', airspace: false, ...store.get('mapOpts', {}) },
   wind: null,      // wind grid for the map's streamlines
+  airspace: null,  // openAIP airspace (data/airspace.json), 'none' when not published yet
   points: {},      // "lat,lon" -> ground height in m, or 'loading' / 'error'
   shareCtx: null,
 };
@@ -268,6 +269,60 @@ async function loadAladin() {
 }
 
 // Live stations come from a file refreshed every 30 minutes by tools/obs.py.
+// ---------- airspace (openAIP, prepared by tools/airspace.py) ----------
+async function loadAirspace() {
+  if (S.airspace) return;
+  S.airspace = 'loading';
+  try {
+    const r = await fetch('data/airspace.json', { cache: 'no-cache' });
+    S.airspace = r.ok ? await r.json() : 'none';
+  } catch (e) { S.airspace = 'none'; }
+  render();
+}
+function airData() {
+  if (!S.airspace) { loadAirspace(); return null; }
+  return S.airspace.features ? S.airspace : null;
+}
+// Ray casting on the outer ring minus holes.
+function inRing(ring, x, y) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+function inPolygon(rings, x, y) { return inRing(rings[0], x, y) && !rings.slice(1).some((h) => inRing(h, x, y)); }
+function airAt(lat, lon) {
+  if (!S.airspace || !S.airspace.features) return [];
+  return S.airspace.features.filter((f) => {
+    const g = f.geometry;
+    return g.type === 'Polygon' ? inPolygon(g.coordinates, lon, lat) : g.coordinates.some((p) => inPolygon(p, lon, lat));
+  }).sort((a, b) => (a.properties.lowerM ?? 0) - (b.properties.lowerM ?? 0));
+}
+function limitText(label, m) { return m != null && m > 0 && !/^FL/.test(label) ? `${label} (${m50(m)} m)` : /^FL/.test(label) && m ? `${label} (≈ ${m50(m)} m)` : label; }
+function airRow(f) {
+  const p = f.properties, c = AIR_COLORS[p.type] || '#64748b';
+  return `<li><span class="air-badge" style="border-color:${c};color:${c}">${esc(p.type)}${p.cls ? ' ' + p.cls : ''}</span><span><b>${esc(p.name)}</b><small>${limitText(p.lower, p.lowerM)} – ${esc(p.upper)}</small></span></li>`;
+}
+function airList(lat, lon, compact) {
+  if (!S.airspace || !S.airspace.features) return '';
+  const list = airAt(lat, lon);
+  if (!list.length) return `<span class="dim">${t().airNone}</span>`;
+  return `${compact ? `<span class="dim">${t().airHere}</span>` : ''}<ul class="air-list">${list.map(airRow).join('')}</ul>`;
+}
+function airLegend() {
+  const kinds = [['CTR', 'CTR'], ['TMA', 'TMA'], ['R', 'R / P'], ['D', 'D'], ['TMZ', 'TMZ / RMZ'], ['TRA', 'TRA / TSA']];
+  const state = S.airspace === 'none' ? `<span class="v-warn">${t().airMissing}</span>` : !S.airspace || S.airspace === 'loading' ? `<span>${t().loading}</span>` : '';
+  return `<div class="legend"><span><b>${t().mapAir}</b></span>${kinds.map(([k, l]) => `<span><i class="air-sw" style="border-color:${AIR_COLORS[k]};background:${AIR_COLORS[k]}22"></i>${l}</span>`).join('')}${state}</div>
+    <p class="hint">${t().airNote}</p>`;
+}
+function airspaceCard(site) {
+  if (!S.airspace) { loadAirspace(); return ''; }
+  if (!S.airspace.features) return '';
+  return `<section class="card"><h2>${t().airAbove}</h2>${airList(site.lat, site.lon, false)}<p class="hint" style="margin:10px 0 0">${t().airNote}</p></section>`;
+}
+
 async function loadObs() {
   try {
     const r = await fetch('data/obs.json', { cache: 'no-cache' });
@@ -512,6 +567,7 @@ function mapView() {
       <button type="button" class="tog" data-maplayer="stations" aria-pressed="${o.stations}">${t().mapStations}</button>
       <button type="button" class="tog" data-maplayer="wind" aria-pressed="${o.wind}">${t().mapWind}</button>
       ${o.wind ? `<button type="button" class="tog" data-act="wind-anim" aria-pressed="${windAnimOn()}">${t().mapWindAnim}</button>` : ''}
+      <button type="button" class="tog" data-maplayer="airspace" aria-pressed="${o.airspace}">${t().mapAir}</button>
       ${o.wind ? `<label class="sel-wrap"><span class="sr">${t().mapWindLevel}</span><select id="map-wlevel" class="input">${M.WIND_LEVELS.map((l) => `<option value="${l}"${o.windLevel === l ? ' selected' : ''}>${t().windLevels[l]}</option>`).join('')}</select></label>` : ''}
       <div class="seg" role="group"><button type="button" data-mapbase="topo" aria-pressed="${o.base === 'topo'}">${t().mapTerrain}</button><button type="button" data-mapbase="osm" aria-pressed="${o.base === 'osm'}">${t().mapStreet}</button></div>
     </div>`;
@@ -521,7 +577,8 @@ function mapView() {
     <div class="legend">${legend}<span>${t().mapHint}</span></div>
     ${o.thermals ? `<p class="hint">${t().mapThermalNote}</p>` : ''}
     ${o.stations ? obsLateNote() : ''}
-    ${o.wind ? windLegend() : ''}`;
+    ${o.wind ? windLegend() : ''}
+    ${o.airspace ? airLegend() : ''}`;
 }
 
 // ---------- wind streamlines ----------
@@ -679,12 +736,13 @@ function mapData() {
     sites, stations, base: S.mapOpts.base,
     focus: mapFocus(route()),
     kk7: S.mapOpts.thermals && ref ? kk7Layer(ref.date, hour, ref.sunrise) : null,
+    airspace: S.mapOpts.airspace ? airData() : null,
     wind: ref ? windField(ref.date, hour) : null,
     windAnim: windAnimOn(),
     failText: t().mapFail,
     zoomHint: t().mapZoomHint, zoomBtn: t().mapZoomBtn,
     onAction: handleClick, // Leaflet stops clicks inside popups from reaching the document
-    pointPopup: (lat, lon) => `<div class="pop"><b>${t().mapPoint}</b><span class="dim num">${lat.toFixed(3)}, ${lon.toFixed(3)}</span><a href="#point=${lat.toFixed(4)},${lon.toFixed(4)}&day=${di}">${t().mapOpen} →</a><button type="button" class="btn small" data-act="add-site-at" data-lat="${lat.toFixed(4)}" data-lon="${lon.toFixed(4)}">${t().pointSave}</button></div>`,
+    pointPopup: (lat, lon) => `<div class="pop"><b>${t().mapPoint}</b><span class="dim num">${lat.toFixed(3)}, ${lon.toFixed(3)}</span><a href="#point=${lat.toFixed(4)},${lon.toFixed(4)}&day=${di}">${t().mapOpen} →</a><button type="button" class="btn small" data-act="add-site-at" data-lat="${lat.toFixed(4)}" data-lon="${lon.toFixed(4)}">${t().pointSave}</button>${S.mapOpts.airspace ? airList(lat, lon, true) : ''}</div>`,
   };
 }
 
@@ -797,7 +855,7 @@ function detailView(site, di) {
   const live = di === 0 ? liveSection(site) : '';
   const day = mdays.find((d) => d.date === baseDay.date);
   if (!day || day.summary.state === 'nodata') {
-    return head + tabs + modelBar + `<section class="card"><p class="hint" style="margin:0">${t().modelNoDay(M.MODELS[dm].label)}</p></section>` + live + compare(site, baseDay.date, cols, dm) + links(site);
+    return head + tabs + modelBar + `<section class="card"><p class="hint" style="margin:0">${t().modelNoDay(M.MODELS[dm].label)}</p></section>` + live + compare(site, baseDay.date, cols, dm) + airspaceCard(site) + links(site);
   }
   const sum = day.summary;
   const ag = agreement(day.date);
@@ -817,7 +875,7 @@ function detailView(site, di) {
   const summary = `<section class="summary st-${sum.state}"><div class="verdict"><span class="pill">${t().state[sum.state]}</span><span>${dayParts(day.date).full}</span>${reasonLine}${sun}</div>${kpis}</section>`;
   const hours = day.hours.filter((h) => h.hour >= rise && h.hour <= set);
   const sel = pickHour(hours, sum);
-  return head + tabs + modelBar + summary + live + hourlyTable(site, hours, sel) + altitudeGrid(site, hours, sel) + hourDetail(site, hours.find((h) => h.hour === sel)) + compare(site, baseDay.date, cols, dm) + links(site);
+  return head + tabs + modelBar + summary + live + hourlyTable(site, hours, sel) + altitudeGrid(site, hours, sel) + hourDetail(site, hours.find((h) => h.hour === sel)) + compare(site, baseDay.date, cols, dm) + airspaceCard(site) + links(site);
 }
 
 function hourlyTable(site, hours, sel) {

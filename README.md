@@ -22,6 +22,7 @@ Prognoza za paragliding u Hrvatskoj · Paragliding forecast for Croatia (HR / EN
   - **Conditions by altitude:** wind at each height through the day, with the thermal layer and cloud marked.
   - **Sounding and stability:** a sounding chart plus stability, inversions and freezing level.
   - **Model comparison:** 8 models (ICON-2I, ALADIN-SI, ICON, HARMONIE-AROME, ARPEGE, UKMO, ECMWF, GFS); click one to see all its data.
+  - **Airspace layer:** CTR, TMA, restricted/danger/prohibited areas, TMZ/RMZ, TRA/TSA below 4500 m from [openAIP](https://www.openaip.net) (CC BY-NC 4.0), refreshed daily by `tools/airspace.py` (needs the `OPENAIP_API_KEY` Actions secret). Tap the map to list the airspace at that point; each site page lists the airspace above the launch.
   - **Links:** radar, satellite, lightning, airspace, AMC airspace bookings, kk7.
 - **Limits:** student, licensed pilot, or your own limits.
 

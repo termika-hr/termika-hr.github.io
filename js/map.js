@@ -4,7 +4,7 @@
 const LEAFLET = 'https://unpkg.com/leaflet@1.9.4/dist/';
 let loading = null;
 let map = null, el = null, current = null, fitted = false;
-let baseKey = null, kk7Key = null, focusKey = null;
+let baseKey = null, kk7Key = null, focusKey = null, airKey = null;
 const siteMarkers = {};
 const base = {};
 const layers = {};
@@ -235,6 +235,28 @@ function sample(f, lat, lon) {
   return null;
 }
 
+// ---------- airspace ----------
+// openAIP polygons in their own pane (above tiles and kk7, below streamlines and markers). They
+// don't take taps: a tap on the map lists the airspace at that point in the point popup instead.
+export const AIR_COLORS = { CTR: '#dc2626', MCTR: '#dc2626', ATZ: '#dc2626', MATZ: '#dc2626', TMA: '#2563eb', CTA: '#2563eb',
+  R: '#c026d3', P: '#c026d3', D: '#ea580c', TMZ: '#475569', RMZ: '#475569', TRA: '#7c3aed', TSA: '#7c3aed',
+  Gliding: '#16a34a', Sport: '#16a34a' };
+function syncAirspace(L, air) {
+  const key = air ? air.generated : null;
+  if (key === airKey) return;
+  if (layers.air) { map.removeLayer(layers.air); layers.air = null; }
+  airKey = key;
+  if (!air) return;
+  if (!map.getPane('air')) { const p = map.createPane('air'); p.style.zIndex = 420; p.style.pointerEvents = 'none'; }
+  layers.air = L.geoJSON(air, {
+    pane: 'air', interactive: false,
+    style: (f) => {
+      const t = f.properties.type, c = AIR_COLORS[t] || '#64748b';
+      return { color: c, weight: 1.6, opacity: 0.9, fillColor: c, fillOpacity: 0.07, dashArray: t === 'TMZ' || t === 'RMZ' || t === 'D' ? '6 4' : null };
+    },
+  }).addTo(map);
+}
+
 function syncWind(L, wind, anim) {
   if (!wind) { if (windLayer && map.hasLayer(windLayer)) map.removeLayer(windLayer); return; }
   if (!WindLayer) WindLayer = windClass(L);
@@ -279,6 +301,7 @@ function update(L, data) {
   add(layers.stations, data.stations, [46, 22], 'stn-wrap');
   syncStations();
   syncWind(L, data.wind, data.windAnim);
+  syncAirspace(L, data.airspace);
   // Opened from a site page: centre on that site (or point) once and open its popup.
   const f = data.focus;
   if (f && f.key !== focusKey) {

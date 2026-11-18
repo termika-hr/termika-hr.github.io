@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 .playwright-mcp/
 data/wind/
+data/airspace.json
