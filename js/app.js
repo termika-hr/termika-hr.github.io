@@ -145,7 +145,7 @@ const dirsText = (dirs) => (dirs || []).map((d) => dirLabel(d, S.lang)).join(', 
 function route() {
   const p = new URLSearchParams(location.hash.slice(1));
   const day = Math.max(0, Math.min(6, +(p.get('day') || 0) || 0));
-  if (p.get('view') === 'map') return { view: 'map', day };
+  if (p.get('view') === 'map') return { view: 'map', day, focus: p.get('focus') };
   const pt = (p.get('point') || '').split(',').map(Number);
   if (pt.length === 2 && pt.every(Number.isFinite) && Math.abs(pt[0]) <= 90 && Math.abs(pt[1]) <= 180) {
     return { view: 'site', day, point: { lat: pt[0], lon: pt[1], key: `${pt[0].toFixed(4)},${pt[1].toFixed(4)}` } };
@@ -322,7 +322,7 @@ function header(r) {
     </div>
   </header>
   <div class="subbar">
-    <nav class="views" aria-label="${t().viewList} / ${t().viewMap}">${tab('#', t().viewList, r.view === 'list')}${tab('#view=map', t().viewMap, r.view === 'map')}</nav>
+    <nav class="views" aria-label="${t().viewList} / ${t().viewMap}">${tab('#', t().viewList, r.view === 'list')}${tab(r.view === 'site' && currentSite(r) ? mapHrefFor(currentSite(r), r.day) : '#view=map', t().viewMap, r.view === 'map')}</nav>
     <div class="status">
       ${S.ov ? `<span>${t().updated} <b>${timeStr(S.ov.t)}</b></span>` : ''}
       <span>${t().model} <b>${M.MODELS[S.model].label}</b></span>
@@ -574,7 +574,7 @@ function mapData() {
       ? `${windowText(sum.window)}${sum.topAgl >= 150 ? ` · ${t().thermalsTo(m50(sum.top))}` : ''}`
       : h && h.a ? `${degLabel(h.wd, S.lang)} ${F.w(h.ws)}${h.a.topAgl >= 150 ? ` · ${t().thermalsTo(m50(h.a.top))}` : ''}` : '';
     return {
-      lat: s.lat, lon: s.lon, name: s.name,
+      id: s.id, lat: s.lat, lon: s.lon, name: s.name,
       icon: `<div class="pin st-${state}">${rose(s.dirs)}</div>`,
       popup: `<div class="pop"><b>${esc(s.name)}</b><span class="dim">${Math.round(s.elev)} m · ${dirsText(s.dirs)}</span><span><span class="pill st-${state}">${t().state[state]}</span> ${stars(hour === 'day' ? sum.rating : 0)}</span>${info ? `<span>${info}</span>` : ''}<a href="${hrefFor(s, di)}">${t().mapOpen} →</a></div>`,
     };
@@ -587,6 +587,7 @@ function mapData() {
   const ref = first[di];
   return {
     sites, stations, base: S.mapOpts.base,
+    focus: mapFocus(route()),
     kk7: S.mapOpts.thermals && ref ? kk7Layer(ref.date, hour, ref.sunrise) : null,
     wind: ref ? windField(ref.date, hour) : null,
     failText: t().mapFail,
@@ -604,7 +605,20 @@ function pickHour(hours, sum) {
   return (day.find((h) => h.hour === 13) || day[Math.floor(day.length / 2)] || hours[12] || {}).hour ?? 12;
 }
 
-function siteHead(site) {
+// Map link from a site page: opens the map on that site, on the same day.
+function mapHrefFor(site, day = 0) {
+  const f = site.point ? `${site.lat.toFixed(4)},${site.lon.toFixed(4)}` : encodeURIComponent(site.id);
+  return `#view=map&day=${day}&focus=${f}`;
+}
+function mapFocus(r) {
+  if (!r.focus) return null;
+  const pt = r.focus.split(',').map(Number);
+  if (pt.length === 2 && pt.every(Number.isFinite)) return { key: r.focus, lat: pt[0], lon: pt[1] };
+  const s = findSite(r.focus);
+  return s ? { key: r.focus, id: s.id, lat: s.lat, lon: s.lon } : null;
+}
+
+function siteHead(site, di = 0) {
   const fav = S.favs.includes(site.id);
   const actions = [
     `<button type="button" class="icon-btn" data-act="share-site" aria-label="${t().shareForecast}" title="${t().shareForecast}">${IC.share}</button>`,
@@ -612,7 +626,7 @@ function siteHead(site) {
     !site.point ? `<button type="button" class="icon-btn" data-act="fav" aria-pressed="${fav}" aria-label="${fav ? t().favRemove : t().favAdd}" title="${fav ? t().favRemove : t().favAdd}">${IC.star}</button>` : '',
     site.custom ? `<button type="button" class="icon-btn" data-act="edit-site" data-id="${esc(site.id)}" aria-label="${t().edit}" title="${t().edit}">${IC.edit}</button>` : '',
   ].join('');
-  return `<nav class="crumbs"><a href="#">← ${t().allSites}</a><a href="#view=map">${t().viewMap}</a></nav>
+  return `<nav class="crumbs"><a href="#">← ${t().allSites}</a><a href="${mapHrefFor(site, di)}">${t().viewMap}</a></nav>
   <section class="site-head">
     ${rose(site.dirs, 'rose-big', true)}
     <div>
@@ -676,7 +690,7 @@ function liveSection(site) {
 
 function detailView(site, di) {
   const days = siteDays(site);
-  const head = siteHead(site);
+  const head = siteHead(site, di);
   if (!days || !days[di]) {
     const msg = S.dtStatus === 'error' && (S.ovStatus === 'error' || site.point) ? t().error(esc(S.ovError || '')) : t().loading;
     return head + `<p class="boot">${msg}</p>`;

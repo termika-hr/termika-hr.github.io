@@ -4,7 +4,8 @@
 const LEAFLET = 'https://unpkg.com/leaflet@1.9.4/dist/';
 let loading = null;
 let map = null, el = null, current = null, fitted = false;
-let baseKey = null, kk7Key = null;
+let baseKey = null, kk7Key = null, focusKey = null;
+const siteMarkers = {};
 const base = {};
 const layers = {};
 
@@ -252,16 +253,27 @@ function update(L, data) {
   const add = (group, list, size, cls) => {
     group.clearLayers();
     for (const s of list) {
-      L.marker([s.lat, s.lon], {
+      const mk = L.marker([s.lat, s.lon], {
         icon: L.divIcon({ className: cls, html: s.icon, iconSize: size, iconAnchor: [size[0] / 2, size[1] / 2], popupAnchor: [0, -size[1] / 2] }),
         title: s.name, keyboard: true, riseOnHover: true,
       }).bindPopup(s.popup).addTo(group);
+      if (s.id) siteMarkers[s.id] = mk;
     }
   };
   add(layers.sites, data.sites, [30, 30], 'pin-wrap');
   add(layers.stations, data.stations, [46, 22], 'stn-wrap');
   syncStations();
   syncWind(L, data.wind);
+  // Opened from a site page: centre on that site (or point) once and open its popup.
+  const f = data.focus;
+  if (f && f.key !== focusKey) {
+    map.invalidateSize();
+    map.setView([f.lat, f.lon], Math.max(map.getZoom(), 11));
+    if (f.id && siteMarkers[f.id]) siteMarkers[f.id].openPopup();
+    else L.popup().setLatLng([f.lat, f.lon]).setContent(data.pointPopup(f.lat, f.lon)).openOn(map);
+    fitted = true;
+  }
+  focusKey = f ? f.key : null;
   if (!fitted && data.sites.length) {
     map.fitBounds(L.latLngBounds(data.sites.map((s) => [s.lat, s.lon])).pad(0.12));
     fitted = true;
