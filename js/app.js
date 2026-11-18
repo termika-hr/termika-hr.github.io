@@ -52,7 +52,7 @@ const findSite = (id) => allSites().find((s) => s.id === id);
 const unitLabel = () => ({ kmh: 'km/h', ms: 'm/s', kt: 'kt' }[S.units]);
 function wNum(kmh) {
   if (kmh == null) return '–';
-  if (S.units === 'ms') { const v = kmh / 3.6; return v < 10 ? v.toFixed(1) : Math.round(v); }
+  if (S.units === 'ms') { const v = kmh / 3.6; return v < 10 ? dec1(v) : Math.round(v); }
   if (S.units === 'kt') return Math.round(kmh / 1.852);
   return Math.round(kmh);
 }
@@ -61,6 +61,14 @@ const F = {
   mm: (v) => (v < 1 ? v.toFixed(1) : Math.round(v)),
 };
 const dec1 = (v) => (S.lang === 'hr' ? v.toFixed(1).replace('.', ',') : v.toFixed(1));
+// Wind is stored in km/h everywhere; these convert to and from the unit the pilot picked.
+const PER_KMH = { kmh: 1, ms: 1 / 3.6, kt: 1 / 1.852 };
+const toUnit = (kmh) => kmh * PER_KMH[S.units];
+const fromUnit = (v) => v / PER_KMH[S.units];
+// Inline km/h · m/s · kt switch; it changes the same setting as the one in Settings.
+function unitSeg() {
+  return `<div class="seg seg-sm" role="group" aria-label="${t().units}">${[['kmh', 'km/h'], ['ms', 'm/s'], ['kt', 'kt']].map(([v, l]) => `<button type="button" data-set="units" data-val="${v}" aria-pressed="${S.units === v}">${l}</button>`).join('')}</div>`;
+}
 const m50 = (v) => Math.round(v / 50) * 50;
 const pad2 = (n) => String(n).padStart(2, '0');
 function dayParts(date) {
@@ -658,7 +666,7 @@ function hourlyTable(site, hours, sel) {
   ].filter(Boolean);
   const unitFor = (k) => (['wind', 'gust', 'air', 'l850', 'l700'].includes(k) ? ` <span class="dim">${unitLabel()}</span>` : k === 'top' || k === 'base' ? ' <span class="dim">m</span>' : '');
   const body = rows.map(([k, f, sep]) => `<tr${sep === 'sep' ? ' class="sep"' : ''}><th scope="row">${t().rows[k]}${unitFor(k)}</th>${hours.map((h) => `<td${cls(h)}>${f(h)}</td>`).join('')}</tr>`).join('');
-  return `<section class="card"><div class="table-scroll" id="hscroll"><table class="htable">
+  return `<section class="card"><div class="card-head"><h2>${t().hourly}</h2>${unitSeg()}</div><div class="table-scroll" id="hscroll"><table class="htable">
     <thead><tr><th scope="row"></th>${hours.map((h) => `<th${cls(h)}><button type="button" data-hour="${h.hour}" aria-pressed="${h.hour === sel}">${pad2(h.hour)}</button></th>`).join('')}</tr></thead>
     <tbody>${body}</tbody></table></div></section>`;
 }
@@ -682,7 +690,7 @@ function altitudeGrid(site, hours, sel) {
     return `<tr${launch ? ' class="launch-row"' : ''}><th scope="row">${label}</th>${cells}</tr>`;
   }).join('');
   const head = `<thead><tr><th scope="row"><span class="dim">${unitLabel()}</span></th>${hours.map((h) => `<th${cls(h)}><button type="button" data-hour="${h.hour}" aria-pressed="${h.hour === sel}">${pad2(h.hour)}</button></th>`).join('')}</tr></thead>`;
-  return `<section class="card"><h2>${t().alt}</h2><p class="hint">${t().altHint}</p>
+  return `<section class="card"><div class="card-head"><h2>${t().alt}</h2>${unitSeg()}</div><p class="hint">${t().altHint}</p>
     <div class="table-scroll" id="ascroll"><table class="htable agrid">${head}<tbody>${rows}</tbody></table></div>
     <div class="legend alt-legend"><span><i class="sw lay-th"></i>${t().altThermal}</span><span><i class="sw lay-cu"></i>${t().altCloud}</span><span><b class="v-ok">●</b><b class="v-warn">●</b><b class="v-bad">●</b> ${t().altColors}</span></div>
   </section>`;
@@ -838,8 +846,12 @@ function settingsHtml() {
   const levels = Object.keys(M.PROFILES).map((k) => `<label><input type="radio" name="level" value="${k}" ${S.profile === k ? 'checked' : ''}><span><b>${t().levels[k]}</b><small>${t().levelLimits(M.PROFILES[k], F)}</small></span></label>`).join('');
   const c = M.PROFILES.custom;
   const limits = `<div class="limits"${S.profile === 'custom' ? '' : ' hidden'}>
-      <p class="hint" style="margin:0">${t().limHint}</p>
-      <div class="row2">${['wind', 'gust', 'spread', 'air'].map((k) => `<div class="field"><label for="lim-${k}">${t().lim[k]} (km/h)</label><input class="input" id="lim-${k}" type="number" inputmode="numeric" min="1" max="80" step="1" value="${c[k]}"></div>`).join('')}</div>
+      <p class="hint" style="margin:0">${t().limHint(unitLabel())}</p>
+      <div class="row2">${['wind', 'gust', 'spread', 'air'].map((k) => {
+        const ms = S.units === 'ms';
+        const val = ms ? toUnit(c[k]).toFixed(1) : Math.round(toUnit(c[k]));
+        return `<div class="field"><label for="lim-${k}">${t().lim[k]} (${unitLabel()})</label><input class="input" id="lim-${k}" type="number" inputmode="decimal" min="${ms ? 0.5 : 1}" max="${Math.ceil(toUnit(80))}" step="${ms ? 0.5 : 1}" value="${val}"></div>`;
+      }).join('')}</div>
     </div>`;
   const models = Object.entries(M.MODELS).filter(([k]) => !M.MODELS[k].local).map(([k, m]) => `<label><input type="radio" name="model" value="${k}" ${S.model === k ? 'checked' : ''}><span><b>${m.label}</b><small>${modelLong(k)}</small></span></label>`).join('');
   const mine = S.custom.length
@@ -1029,13 +1041,16 @@ document.addEventListener('change', (e) => {
   if (el.name === 'model') setPref('model', el.value);
   if (el.id === 'map-hour') { S.mapHour = el.value === 'day' ? 'day' : +el.value; render(); }
   if (el.id && el.id.startsWith('lim-')) {
-    const v = {};
-    for (const k of ['wind', 'gust', 'spread', 'air']) {
-      const n = Math.round(+$('#lim-' + k).value);
-      v[k] = Number.isFinite(n) && n >= 1 && n <= 80 ? n : M.PROFILES.custom[k];
-    }
+    // Inputs are in the chosen unit; limits are kept in km/h. Only the edited field is
+    // converted back, so the others don't drift through rounding.
+    const k = el.id.slice(4);
+    const kmh = fromUnit(parseFloat(String(el.value).replace(',', '.')));
+    const v = { ...M.PROFILES.custom };
+    if (Number.isFinite(kmh) && kmh >= 1 && kmh <= 80) v[k] = Math.round(kmh * 10) / 10;
     S.limits = v; store.set('limits', v);
     M.PROFILES.custom = v;
+    const sm = $('input[name=level][value=custom]')?.closest('label')?.querySelector('small');
+    if (sm) sm.textContent = t().levelLimits(v, F);
     reanalyze();
     render();
   }
