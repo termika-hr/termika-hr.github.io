@@ -205,7 +205,9 @@ h3 { font-size: 1.1rem; }
 .site-head h1 { font-size: 2rem; }
 .site-head p { margin: 4px 0 0; color: var(--muted); }
 .site-head .warn { color: var(--maybe); }
-.site-actions { display: flex; gap: 6px; }
+.site-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.map-btn { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; color: var(--ink); }
+.map-btn svg { width: 16px; height: 16px; }
 .icon-btn[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
 .icon-btn[aria-pressed="true"] svg path { fill: currentColor; }
 

@@ -250,7 +250,11 @@ function update(L, data) {
     }
     kk7Key = data.kk7;
   }
+  // Rebuild markers only when they changed, so a re-render doesn't close an open popup.
   const add = (group, list, size, cls) => {
+    const sig = list.map((s) => `${s.lat},${s.lon}|${s.icon}|${s.popup}`).join('#');
+    if (group._sig === sig) return;
+    group._sig = sig;
     group.clearLayers();
     for (const s of list) {
       const mk = L.marker([s.lat, s.lon], {
@@ -268,7 +272,7 @@ function update(L, data) {
   const f = data.focus;
   if (f && f.key !== focusKey) {
     map.invalidateSize();
-    map.setView([f.lat, f.lon], Math.max(map.getZoom(), 11));
+    map.setView([f.lat, f.lon], Math.max(map.getZoom(), 13));
     if (f.id && siteMarkers[f.id]) siteMarkers[f.id].openPopup();
     else L.popup().setLatLng([f.lat, f.lon]).setContent(data.pointPopup(f.lat, f.lon)).openOn(map);
     fitted = true;

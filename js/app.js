@@ -107,6 +107,7 @@ const IC = {
   edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
   close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   share: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4M5 11v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  pin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 0 1 13 0c0 4.8-6.5 11-6.5 11z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.3" fill="currentColor"/></svg>',
   plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
 };
 const IC_SHARE_INLINE = IC.share.replace('<svg ', '<svg class="inline-ic" ');
@@ -618,9 +619,10 @@ function mapFocus(r) {
   return s ? { key: r.focus, id: s.id, lat: s.lat, lon: s.lon } : null;
 }
 
-function siteHead(site) {
+function siteHead(site, di = 0) {
   const fav = S.favs.includes(site.id);
   const actions = [
+    `<a class="btn small map-btn" href="${mapHrefFor(site, di)}">${IC.pin}${t().showOnMap}</a>`,
     `<button type="button" class="icon-btn" data-act="share-site" aria-label="${t().shareForecast}" title="${t().shareForecast}">${IC.share}</button>`,
     site.point ? `<button type="button" class="btn small" data-act="add-site-at" data-lat="${site.lat.toFixed(4)}" data-lon="${site.lon.toFixed(4)}" data-elev="${site.elev}">${t().pointSave}</button>` : '',
     !site.point ? `<button type="button" class="icon-btn" data-act="fav" aria-pressed="${fav}" aria-label="${fav ? t().favRemove : t().favAdd}" title="${fav ? t().favRemove : t().favAdd}">${IC.star}</button>` : '',
@@ -689,7 +691,7 @@ function liveSection(site) {
 
 function detailView(site, di) {
   const days = siteDays(site);
-  const head = siteHead(site);
+  const head = siteHead(site, di);
   if (!days || !days[di]) {
     const msg = S.dtStatus === 'error' && (S.ovStatus === 'error' || site.point) ? t().error(esc(S.ovError || '')) : t().loading;
     return head + `<p class="boot">${msg}</p>`;
