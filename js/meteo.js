@@ -8,11 +8,16 @@ const SURFACE_VARS = [
   'precipitation', 'precipitation_probability', 'weather_code', 'visibility',
 ];
 
-// Ordered from finest to coarsest grid. `days` = how far ahead the model reaches.
-// DHMZ ALADIN has no open data feed, so it is only linked (see app.js). HARMONIE-AROME and ARPEGE
-// come from the same code family (ACCORD / Météo-France) as ALADIN.
+// Ordered from finest to coarsest grid. `days` = how far ahead the model reaches. `fine` / `then`:
+// a seamless model that runs at `res` for about `fine` days and then continues with `then`.
+// DHMZ's ALADIN-HR has no open data feed, so it is only linked (see app.js). ČHMÚ (Czech) runs the
+// same ALADIN model at 2.3 km over Central Europe, all of Croatia included; Open-Meteo continues
+// it with ECMWF after about 72 h. Its CAPE is defined differently (2-3 times what its own profile
+// gives, even at night), so Termika computes CAPE from the profile for it (`ownCape`).
+// HARMONIE-AROME and ARPEGE come from the same code family (ACCORD / Météo-France) as ALADIN.
 export const MODELS = {
   italia_meteo_arpae_icon_2i: { label: 'ICON-2I', org: 'ItaliaMeteo', res: '2.2 km', days: 3 },
+  chmi_aladin_seamless: { label: 'ALADIN-CE', org: 'ČHMÚ', res: '2.3 km', days: 7, fine: 3, then: 'ECMWF 9 km', ownCape: true },
   // Not on Open-Meteo: read from data/aladin-si.json, made by tools/aladin_si.py from ARSO's GRIB files.
   aladin_si: { label: 'ALADIN-SI', org: 'ARSO', res: '4.4 km', days: 3, local: true },
   icon_seamless: { label: 'ICON', org: 'DWD', res: '2–7 km', days: 7 },
@@ -154,6 +159,29 @@ function pressureAt(levels, z) {
   return Math.exp(Math.log(a.p) + t * (Math.log(b.p) - Math.log(a.p)));
 }
 
+// CAPE (J/kg) of a parcel lifted from height z0 with the 2 m temperature and dew point, up to
+// the top of the profile (500 hPa). Used for models whose own CAPE isn't comparable with the rest.
+export function parcelCape(h, z0) {
+  if (h.T == null || h.Td == null) return null;
+  const above = h.levels.filter((l) => l.z > z0 + 10);
+  if (above.length < 3) return null;
+  const prof = [{ z: z0, T: h.T }, ...above];
+  const topZ = prof[prof.length - 1].z;
+  const base = z0 + 125 * Math.max(0, h.T - h.Td);
+  const dz = 25;
+  let z = z0, tp = h.T, cape = 0;
+  while (z + dz <= topZ) {
+    const zn = z + dz;
+    if (zn <= base) tp -= 0.0098 * dz;
+    else tp -= moistLapse(tp, pressureAt(h.levels, zn)) * dz;
+    z = zn;
+    const te = interp(prof, 'T', z);
+    if (te == null) break;
+    if (z > base && tp > te) cape += (G * (tp - te) * dz) / (te + 273.15);
+  }
+  return Math.round(cape);
+}
+
 // ---------- parsing ----------
 
 // Turns one location of an Open-Meteo response into per-hour records for one model.
@@ -179,7 +207,7 @@ export function parseLocation(loc, model) {
       });
     }
     levels.sort((a, b) => a.z - b.z);
-    return {
+    const rec = {
       time,
       T: cols.temperature_2m[i], Td: cols.dew_point_2m[i],
       ws: cols.wind_speed_10m[i], wd: cols.wind_direction_10m[i], gust: cols.wind_gusts_10m[i],
@@ -189,6 +217,8 @@ export function parseLocation(loc, model) {
       code: cols.weather_code[i], vis: cols.visibility[i],
       levels,
     };
+    if (MODELS[model]?.ownCape) rec.cape = parcelCape(rec, loc.elevation ?? levels[0]?.z ?? 0);
+    return rec;
   });
   const d = loc.daily || {};
   return {

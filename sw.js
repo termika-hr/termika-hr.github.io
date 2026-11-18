@@ -1,5 +1,5 @@
 // Termika service worker: keeps the app usable offline. Forecast data is cached by the app itself.
-const CACHE = 'termika-v35';
+const CACHE = 'termika-v36';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest',
   'css/app.css', 'css/fonts.css',

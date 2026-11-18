@@ -142,8 +142,9 @@ const tr = (v) => (v == null ? '' : typeof v === 'string' ? v : v[S.lang] || v.h
 // "DWD · 2–7 km" plus the range when a model stops before day 7.
 function modelLong(k) {
   const m = M.MODELS[k];
-  const res = S.lang === 'hr' ? m.res.replace('.', ',') : m.res;
-  return `${m.org} · ${res}${m.days < 7 ? ` · ${m.days} ${t().days}` : ''}`;
+  const dec = (x) => (S.lang === 'hr' ? x.replace('.', ',') : x);
+  if (m.fine) return `${m.org} · ${t().seamless(dec(m.res), m.fine, dec(m.then))}`;
+  return `${m.org} · ${dec(m.res)}${m.days < 7 ? ` · ${m.days} ${t().days}` : ''}`;
 }
 const dirsText = (dirs) => (dirs || []).map((d) => dirLabel(d, S.lang)).join(', ');
 
@@ -610,7 +611,7 @@ function windAnimOn() {
 // cost no forecast requests. Only when those files are missing or older than 8 hours does
 // the browser download a coarser field from Open-Meteo itself.
 const WIND_FRESH = 8 * 3600e3;
-function windModel() { return M.MODELS[S.model].local ? 'icon_seamless' : S.model; }
+function windModel() { const m = M.MODELS[S.model]; return m.local || m.fine ? 'icon_seamless' : S.model; }
 function windKey() { return `static|${S.mapOpts.windLevel}`; }
 async function getJson(url) {
   const r = await fetch(url, { cache: 'no-cache' });
@@ -1061,7 +1062,9 @@ function compare(site, date, hours, shown) {
     const day = S.dt.days[m].find((d) => d.date === date);
     const cells = hrs.map((hr) => { const h = day?.hours.find((x) => x.hour === hr); const st = h ? h.state : 'nodata'; return `<span class="st-${st}" title="${pad2(hr)}h ${t().state[st]}"></span>`; }).join('');
     const text = !day || day.summary.state === 'nodata' ? t().until(lastData(m)) : day.summary.window ? windowText(day.summary.window) : t().state[day.summary.state];
-    return `<button type="button" class="cmp-row${m === shown ? ' on' : ''}" data-model="${m}" aria-pressed="${m === shown}"><b>${info.label}</b><span class="cmp-cells">${cells}</span><small class="num">${text}</small></button>`;
+    // A seamless model past its fine part: say which model the day really comes from.
+    const later = info.fine && day && S.dt.days[m].indexOf(day) >= info.fine ? ` · ${info.then.split(' ')[0]}` : '';
+    return `<button type="button" class="cmp-row${m === shown ? ' on' : ''}" data-model="${m}" aria-pressed="${m === shown}"><b>${info.label}</b><span class="cmp-cells">${cells}</span><small class="num">${text}${later}</small></button>`;
   }).join('');
   const scale = `<div class="cmp-row"><span></span><div class="cmp-hours">${hrs.map((h) => `<span>${h % 2 ? '' : pad2(h)}</span>`).join('')}</div><small></small></div>`;
   let al = '';

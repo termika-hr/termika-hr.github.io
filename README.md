@@ -21,7 +21,8 @@ Prognoza za paragliding u Hrvatskoj · Paragliding forecast for Croatia (HR / EN
   - **Hourly table:** launch wind, gusts, the strongest wind aloft, 850/700 hPa winds, cloud, rain, CAPE.
   - **Conditions by altitude:** wind at each height through the day, with the thermal layer and cloud marked.
   - **Sounding and stability:** a sounding chart plus stability, inversions and freezing level.
-  - **Model comparison:** 8 models (ICON-2I, ALADIN-SI, ICON, HARMONIE-AROME, ARPEGE, UKMO, ECMWF, GFS); click one to see all its data.
+  - **Model comparison:** 9 models (ICON-2I, ALADIN-CE, ALADIN-SI, ICON, HARMONIE-AROME, ARPEGE, UKMO, ECMWF, GFS); click one to see all its data.
+  - **ALADIN-CE:** the ALADIN model run by the Czech ČHMÚ at 2.3 km over Central Europe (all of Croatia), via Open-Meteo; after about 72 h Open-Meteo continues it with ECMWF 9 km. Its CAPE comes from a different parcel definition (2–3× what its own profile gives, also at night), so Termika computes CAPE from the model profile instead (`parcelCape` in `js/meteo.js`).
   - **Airspace layer:** CTR, TMA, restricted/danger/prohibited areas, TMZ/RMZ, TRA/TSA starting below 3000 m from [openAIP](https://www.openaip.net) (CC BY-NC 4.0), refreshed daily by `tools/airspace.py` (needs the `OPENAIP_API_KEY` Actions secret). Bookable areas (D/TRA/TSA, e.g. the LDD/LDTR/LDTS grid) are drawn on request and marked. Tap the map to list the airspace at that point; each site page lists the airspace above the launch.
   - **Links:** radar, satellite, lightning, airspace, AMC airspace bookings, kk7.
 - **Limits:** student, licensed pilot, or your own limits.
@@ -33,7 +34,7 @@ It is a static web app (PWA), with no build step and no server.
 - **Data browsers can't fetch themselves:** a GitHub Actions workflow (`.github/workflows/pages.yml`) runs every 30 minutes and redeploys the site. It runs:
   - `tools/obs.py`: live stations from DHMZ and METAR → `data/obs.json`
   - `tools/aladin_si.py`: ARSO ALADIN-SI GRIB, launch sites only, fetched only when a new run is out → `data/aladin-si.json`
-- **DHMZ's ALADIN** has no open data, so each site page links to its maps on meteo.hr.
+- **DHMZ's ALADIN-HR** has no open data (GRIB only for a fee), so each site page links to its maps on meteo.hr.
 
 ## Run locally
 
@@ -58,7 +59,7 @@ Open http://localhost:8765.
 ## Data and sources
 
 - **Weather:** [Open-Meteo](https://open-meteo.com/) (CC BY 4.0). The free Open-Meteo API is for non-commercial use.
-  - Forecast models: ItaliaMeteo ICON-2I, DWD ICON, KNMI HARMONIE-AROME, Météo-France ARPEGE, UK Met Office, ECMWF IFS 0.25°, NOAA GFS.
+  - Forecast models: ČHMÚ ALADIN, ItaliaMeteo ICON-2I, DWD ICON, KNMI HARMONIE-AROME, Météo-France ARPEGE, UK Met Office, ECMWF IFS 0.25°, NOAA GFS.
   - Ensemble: ECMWF ENS.
 - **ALADIN-SI:** vir: ARSO (Agencija Republike Slovenije za okolje), [meteo.arso.gov.si](https://meteo.arso.gov.si/).
 - **Live stations:** izvor: DHMZ ([meteo.hr](https://meteo.hr/)); METAR via NOAA Aviation Weather Center.
