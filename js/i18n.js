@@ -41,7 +41,10 @@ export const STR = {
     fav: 'Favorit', favAdd: 'Dodaj u favorite', favRemove: 'Makni iz favorita',
     edit: 'Uredi',
     window: 'Siguran prozor', noWindow: 'nema',
-    cbase: 'Baza kumulusa', blue: 'plavo (bez kumulusa)',
+    cbase: 'Baza kumulusa', blue: 'plava termika: bez kumulusa',
+    noCu: 'nema kumulusa',
+    noCuShort: 'bez Cu',
+    blueTip: 'Plava termika: zrak se diže, ali stane ispod visine na kojoj bi se stvorio oblak, pa nema kumulusa koji bi označavali termiku.',
     ttop: 'Vrh termike', aboveLaunch: (m) => `${m} m iznad starta`,
     wstar: 'Jačina termike', est: 'procjena',
     rows: {
@@ -126,7 +129,7 @@ export const STR = {
     help: [
       '<b>Boje.</b> Zeleno znači da nijedno pravilo ispod nije prekršeno. Žuto znači da je nešto blizu granice. Crveno znači da postoji barem jedan razlog protiv leta. Dan je zelen ako ima barem dva zelena sata zaredom.',
       '<b>Vjetar na startu</b> je vjetar modela na 10 m iznad tla. Modeli izglađuju planine, pa na grebenu zna puhati jače nego što piše. <b>Vjetar u zraku</b> je najjači vjetar od starta do vrha termike, a barem do 800 m iznad starta. <b>Zavjetrina</b>: ako 400 m iznad starta vjetar puše s leđa, iza grebena se stvara rotor čak i kad na startu lagano puše u lice.',
-      '<b>Baza kumulusa</b> = 125 m × (temperatura − rosište) iznad starta. <b>Vrh termike</b>: zrak sa starta dižemo po suhoj adijabati (9,8 °C na km) dok ne postane hladniji od okolnog zraka. Ako prije toga dođe do baze, nastaje kumulus i vrh termike je baza. <b>Jačina termike</b> je Deardorffova brzina w*, uz pretpostavku da 30 % sunčevog zračenja grije zrak. To je gruba procjena.',
+      '<b>Baza kumulusa</b> = 125 m × (temperatura − rosište) iznad starta. <b>Vrh termike</b>: zrak sa starta dižemo po suhoj adijabati (9,8 °C na km) dok ne postane hladniji od okolnog zraka. Ako prije toga dođe do baze, nastaje kumulus i vrh termike je baza. <b>Jačina termike</b> je Deardorffova brzina w*, uz pretpostavku da 30 % sunčevog zračenja grije zrak. To je gruba procjena. U retku baze <b>plavo</b> znači plavu termiku: zrak se diže, ali stane ispod baze, pa nema kumulusa koji bi pokazivali gdje je termika. <b>Bez Cu</b> znači isto, ali ispod oblačnog neba od drugih oblaka. Crtica znači da tog sata nema termike.',
       '<b>Rizik grmljavine</b>: CAPE iznad 500 J/kg ili kumulus deblji od 2,5 km je upozorenje. CAPE iznad 1500 J/kg ili oblak viši od 5 km znači ne leti.',
       '<b>Modeli.</b> Glavni model biraš u postavkama, a usporedba pokazuje svih sedam. ICON-2I (talijanski, 2,2 km) i HARMONIE-AROME (5,5 km) najfiniji su, ali sežu samo oko 3 dana. ICON (njemački DWD) ima 2 km prva dva dana, zatim 7 km. ARPEGE (francuski, 11 km, 4 dana), UKMO (britanski, 10 km), ECMWF (25 km) i GFS (američki, 13–25 km) idu do 7 dana. <b>ALADIN-SI</b> (slovenski ARSO, 4,4 km, 3 dana) pokriva sjevernu Hrvatsku, Istru i Kvarner, ali ne i Dalmaciju. U njegovim podacima nema udara vjetra ni CAPE-a, a sunčevo zračenje procjenjujemo iz naoblake i visine Sunca. HARMONIE-AROME i ARPEGE iz iste su obitelji modela. DHMZ-ov ALADIN dostupan je samo kao karte na meteo.hr, pa za njega postoji poveznica na stranici svakog mjesta. Podaci se osvježavaju svakih 30 minuta.',
       '<b>Ocjena dana</b> (1–5 zvjezdica) računa se iz najdužeg sigurnog prozora: 1 zvjezdica za prozor od barem 2 sata, do 2 za visinu termike iznad starta, 1 za jačinu termike i 1 ako u prozoru ima barem 5 sati s termikom. Pola zvjezdice manje ako je vjetar u zraku blizu granice.',
@@ -238,7 +241,10 @@ export const STR = {
     fav: 'Favourite', favAdd: 'Add to favourites', favRemove: 'Remove from favourites',
     edit: 'Edit',
     window: 'Safe window', noWindow: 'none',
-    cbase: 'Cumulus base', blue: 'blue (no cumulus)',
+    cbase: 'Cumulus base', blue: 'blue thermals: no cumulus',
+    noCu: 'no cumulus',
+    noCuShort: 'no Cu',
+    blueTip: 'Blue thermals: the air rises but stops below the height where a cloud would form, so no cumulus marks the thermals.',
     ttop: 'Thermal top', aboveLaunch: (m) => `${m} m above launch`,
     wstar: 'Thermal strength', est: 'estimate',
     rows: {
@@ -323,7 +329,7 @@ export const STR = {
     help: [
       '<b>Colours.</b> Green means none of the rules below is broken. Amber means something is near a limit. Red means at least one reason not to fly. A day is green when it has at least two green hours in a row.',
       '<b>Launch wind</b> is the model wind 10 m above ground. Models smooth out mountains, so a ridge can be windier than shown. <b>Wind aloft</b> is the strongest wind from launch to the thermal top, and at least up to 800 m above launch. <b>Lee side</b>: if the wind 400 m above launch blows from behind, a rotor forms behind the ridge even when launch has a light headwind.',
-      '<b>Cumulus base</b> = 125 m × (temperature − dew point) above launch. <b>Thermal top</b>: air from launch is lifted along the dry adiabat (9.8 °C per km) until it is colder than the air around it. If it reaches the base first, a cumulus forms and the thermal top is the base. <b>Thermal strength</b> is the Deardorff velocity w*, assuming 30% of the sunshine heats the air. Treat it as a rough estimate.',
+      '<b>Cumulus base</b> = 125 m × (temperature − dew point) above launch. <b>Thermal top</b>: air from launch is lifted along the dry adiabat (9.8 °C per km) until it is colder than the air around it. If it reaches the base first, a cumulus forms and the thermal top is the base. <b>Thermal strength</b> is the Deardorff velocity w*, assuming 30% of the sunshine heats the air. Treat it as a rough estimate. In the base row, <b>blue</b> means blue thermals: the air rises but stops below the base, so no cumulus shows where the thermals are. <b>No Cu</b> means the same under an overcast sky from other clouds. A dash means no thermals that hour.',
       '<b>Thunderstorm risk</b>: CAPE above 500 J/kg or a cumulus deeper than 2.5 km is a warning. CAPE above 1500 J/kg or a cloud top above 5 km means don’t fly.',
       '<b>Models.</b> Pick the main model in Settings; the comparison shows all seven. ICON-2I (Italian, 2.2 km) and HARMONIE-AROME (5.5 km) are the finest but reach only about 3 days. ICON (German DWD) is 2 km for two days, then 7 km. ARPEGE (French, 11 km, 4 days), UKMO (British, 10 km), ECMWF (25 km) and GFS (US, 13–25 km) reach 7 days. <b>ALADIN-SI</b> (Slovenian ARSO, 4.4 km, 3 days) covers northern Croatia, Istria and Kvarner, but not Dalmatia. Its data has no gusts or CAPE, and solar radiation is estimated from cloud cover and sun height. HARMONIE-AROME and ARPEGE come from the same model family. DHMZ’s ALADIN is only available as maps on meteo.hr, so each site page links to it. Data refreshes every 30 minutes.',
       '<b>Day rating</b> (1–5 stars) comes from the longest safe window: 1 star for a window of at least 2 hours, up to 2 for thermal height above launch, 1 for thermal strength and 1 if the window has at least 5 hours with thermals. Half a star less if the wind aloft is near the limit.',

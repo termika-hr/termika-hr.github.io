@@ -648,7 +648,7 @@ function detailView(site, di) {
   const kpis = `<dl class="kpis">
     <div><dt>${t().window}</dt><dd class="num">${sum.window ? windowText(sum.window) : t().noWindow}${sum.rating ? `<small>${stars(sum.rating)}</small>` : ''}</dd></div>
     <div><dt>${t().ttop}</dt><dd class="num">${sum.topAgl >= 150 ? `${m50(sum.top)} m<small>${t().aboveLaunch(m50(sum.topAgl))}</small>` : `–<small>${t().noThermals}</small>`}</dd></div>
-    <div><dt>${t().cbase}</dt><dd class="num">${sum.base ? `${m50(sum.base)} m` : `–<small>${t().blue}</small>`}</dd></div>
+    <div><dt>${t().cbase}</dt><dd class="num">${sum.base ? `${m50(sum.base)} m` : `–<small>${sum.topAgl >= 150 ? t().blue : t().noCu}</small>`}</dd></div>
     <div><dt>${t().wstar}</dt><dd class="num">${sum.wstar > 0.2 ? `${dec1(sum.wstar)} m/s` : '–'}<small>${t().est}</small></dd></div>
     ${ag ? `<div><dt>${t().agree}</dt><dd class="num ${agCls}">${ag.go}/${ag.n}<small>${t().agreeText(ag.go, ag.n)}</small></dd></div>` : ''}
     ${en ? `<div><dt>${t().ens}</dt><dd class="num ${enCls}">${Math.round(en.p * 100)} %<small>${en.text} · ${t().ensSrc}</small></dd></div>` : ''}
@@ -682,7 +682,9 @@ function hourlyTable(site, hours, sel) {
     ['l850', (h) => (h.a?.l850 ? w(h.a.l850.ws, h.a.l850.wd, 'dim') : '–')],
     ['l700', (h) => (h.a?.l700 ? w(h.a.l700.ws, h.a.l700.wd, 'dim') : '–')],
     ['top', (h) => (h.a && h.a.topAgl >= 150 ? m50(h.a.top) : '<span class="dim">–</span>'), 'sep'],
-    ['base', (h) => (h.a ? (h.a.cu ? m50(h.a.base) : `<span class="dim">${t().blueShort}</span>`) : '–')],
+    // Cumulus base; "blue" only when there are thermals without cumulus, "no Cu" under an overcast sky.
+    ['base', (h) => (!h.a ? '–' : h.a.cu ? m50(h.a.base) : h.a.topAgl < 150 ? '<span class="dim">–</span>'
+      : `<span class="dim" title="${esc(t().blueTip)}">${(h.cc ?? 0) >= 80 ? t().noCuShort : t().blueShort}</span>`)],
     ['wstar', (h) => (h.a && h.a.wstar > 0.2 ? dec1(h.a.wstar) : '<span class="dim">–</span>')],
     ['cloud', (h) => (h.cc == null ? '–' : `${h.cc}<span class="dim"> (${h.ccl ?? '–'})</span>`), 'sep'],
     ['rain', (h) => (h.pr > 0 ? `<span class="${h.pr >= 0.5 ? 'v-bad' : 'v-warn'}">${F.mm(h.pr)}</span>` : '<span class="dim">–</span>')],
@@ -736,7 +738,7 @@ function hourDetail(site, h) {
     <dt>${t().rows.wind}</dt><dd>${degLabel(h.wd, S.lang)} ${F.w(h.ws)}${h.gust != null ? `, ${t().rows.gust.toLowerCase()} ${F.w(h.gust)}` : ''}</dd>
     <dt>${S.lang === 'hr' ? '400 m iznad starta' : '400 m above launch'}</dt><dd>${a.lee ? `${degLabel(a.lee.wd, S.lang)} ${F.w(a.lee.ws)}` : '–'}</dd>
     <dt>${t().ttop}</dt><dd>${a.topAgl >= 150 ? `${m50(a.top)} m (${t().aboveLaunch(m50(a.topAgl))})` : t().noThermals}</dd>
-    <dt>${t().cbase}</dt><dd>${a.cu ? `${m50(a.base)} m${a.cloudTop ? ` → ${S.lang === 'hr' ? 'vrh oblaka' : 'cloud top'} ${a.open ? '>' : ''}${m50(a.cloudTop)} m` : ''}` : t().blue}</dd>
+    <dt>${t().cbase}</dt><dd>${a.cu ? `${m50(a.base)} m${a.cloudTop ? ` → ${S.lang === 'hr' ? 'vrh oblaka' : 'cloud top'} ${a.open ? '>' : ''}${m50(a.cloudTop)} m` : ''}` : a.topAgl >= 150 ? t().blue : t().noCu}</dd>
     <dt>${t().stab}</dt><dd>${st && st.lapse != null ? `${t().lapse(dec1(st.lapse))}: ${t().stabCls[st.cls]}` : '–'}</dd>
     <dt>${t().inv}</dt><dd>${inv}</dd>
     <dt>${t().zero}</dt><dd>${!st || st.zero == null ? '–' : st.zero <= site.elev + 1 ? t().zeroBelow : `${m50(st.zero)} m`}</dd>
