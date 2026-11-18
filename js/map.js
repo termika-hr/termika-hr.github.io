@@ -111,9 +111,8 @@ function syncStations() {
 // ---------- wind streamlines ----------
 // Particles drift with the wind, leaving short fading trails (the Windy look). They are drawn on
 // one canvas in their own pane, above the tiles and below the markers, and ignore clicks.
-// Colours by speed (km/h): blue → purple → magenta → red → dark red for storms. Motion grows with
-// speed^0.62, so light near-ground winds still move visibly while strong winds don't streak.
-export const WIND_COLORS = [[10, '#1d4ed8'], [20, '#6d28d9'], [30, '#be185d'], [45, '#dc2626'], [Infinity, '#7f1d1d']];
+// Colours by speed (km/h): calm navy → purple → magenta → red → dark red for storms.
+export const WIND_COLORS = [[10, '#1e3a8a'], [20, '#6d28d9'], [30, '#be185d'], [45, '#dc2626'], [Infinity, '#7f1d1d']];
 let WindLayer = null, windLayer = null;
 
 function windClass(L) {
@@ -151,13 +150,12 @@ function windClass(L) {
       // Wind on a 10 px screen grid: pixels per frame plus speed, so the animation only does lookups.
       const C = 10, cols = Math.ceil(size.x / C) + 1, rows = Math.ceil(size.y / C) + 1;
       const grid = new Float32Array(cols * rows * 3);
-      // Pixels per frame: 0.22 · speed^0.62 (5 km/h ≈ 0.6, 12 ≈ 1.0, 50 ≈ 2.5).
+      const K = 0.035; // px per frame for each km/h
       for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
         const ll = m.containerPointToLatLng([c * C, r * C]);
         const w = sample(f, ll.lat, ll.lng), o = (r * cols + c) * 3;
         if (!w) { grid[o] = NaN; continue; }
-        const sp = Math.hypot(w[0], w[1]), k = sp < 0.5 ? 0 : (0.22 * sp ** 0.62) / sp;
-        grid[o] = w[0] * k; grid[o + 1] = -w[1] * k; grid[o + 2] = sp;
+        grid[o] = w[0] * K; grid[o + 1] = -w[1] * K; grid[o + 2] = Math.hypot(w[0], w[1]);
       }
       this._g = { grid, cols, rows, C };
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) { this._static(); return; }
