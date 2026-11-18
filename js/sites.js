@@ -27,7 +27,7 @@ export const SITES = [
   },
   {
     id: 'hrusevec-sjever', name: 'Hruševec sjever', region: 'north', school: true,
-    lat: 45.9386, lon: 15.7916, elev: 197, dirs: ['N'], src: NUBI,
+    lat: 45.9386, lon: 15.7916, elev: 197, dirs: ['N', 'NW'], src: NUBI_DIRS,
   },
   {
     id: 'gornja-pusca', name: 'Gornja Pušća', region: 'north', school: true,
