@@ -6,7 +6,12 @@ import { showMap, WIND_COLORS } from './map.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const TTL = 30 * 60 * 1000;
+// Forecasts are kept for an hour: the models update every 1–6 hours, and Open-Meteo's free tier
+// allows a limited number of requests per day for each internet connection.
+const TTL = 60 * 60 * 1000;
+// Recently opened sites stay in memory, so going back and forth costs no new requests.
+const recent = { dt: new Map(), ens: new Map() };
+function remember(map, key, val) { map.delete(key); map.set(key, val); if (map.size > 8) map.delete(map.keys().next().value); }
 const APP_URL = 'https://termika-hr.github.io/';
 
 const store = {
@@ -183,9 +188,10 @@ async function loadOverview(force = false) {
     const c = { key, t: Date.now(), model: S.model, ids: sites.map((s) => s.id), raw };
     store.set('ov', c);
     applyOv(c);
-    S.ovStatus = 'ok'; S.ovError = null;
+    S.ovStatus = 'ok'; S.ovError = null; S.limitHit = false;
   } catch (e) {
     S.ovStatus = 'error'; S.ovError = e.message || String(e);
+    if (e.status === 429) S.limitHit = true;
   }
   render();
 }
@@ -207,7 +213,7 @@ function analyzeOv() {
 async function loadDetail(site, force = false) {
   const key = siteKey(site);
   if (!force && S.dt && S.dt.key === key && Date.now() - S.dt.t < TTL) return;
-  const cached = store.get('dt', null);
+  const cached = recent.dt.get(key) || store.get('dt', null);
   if (cached && cached.key === key && (!S.dt || S.dt.t !== cached.t)) applyDt(cached, site);
   if (!force && cached && cached.key === key && Date.now() - cached.t < TTL) { S.dtStatus = 'ok'; render(); return; }
   if (S.dt && S.dt.key !== key) S.dt = null;
@@ -216,10 +222,12 @@ async function loadDetail(site, force = false) {
     const raw = await M.fetchForecast([site], M.OM_MODELS());
     const c = { key, t: Date.now(), raw: raw[0] };
     store.set('dt', c);
+    remember(recent.dt, key, c);
     applyDt(c, site);
     S.dtStatus = 'ok';
   } catch (e) {
     S.dtStatus = 'error';
+    if (e.status === 429) S.limitHit = true;
   }
   render();
 }
@@ -274,12 +282,13 @@ async function loadObs() {
 async function loadEnsemble(site, force = false) {
   const key = siteKey(site);
   if (!force && S.ens && S.ens.key === key && Date.now() - S.ens.t < 2 * TTL) return;
-  const cached = store.get('ens', null);
+  const cached = recent.ens.get(key) || store.get('ens', null);
   if (!force && cached && cached.key === key && Date.now() - cached.t < 2 * TTL) { S.ens = cached; render(); return; }
   try {
     const raw = await M.fetchEnsemble(site);
     S.ens = { key, t: Date.now(), raw };
     store.set('ens', S.ens);
+    remember(recent.ens, key, S.ens);
   } catch (e) {
     if (cached && cached.key === key) S.ens = cached;
   }
@@ -331,7 +340,7 @@ function header(r) {
       ${S.ovStatus === 'loading' ? `<span>${t().loading}</span>` : ''}
     </div>
   </div>
-  ${S.ovStatus === 'error' ? `<div class="banner ${S.ov ? '' : 'err'}" role="status">${S.ov ? t().stale(timeStr(S.ov.t)) : t().error(esc(S.ovError))}</div>` : ''}`;
+  ${S.limitHit ? `<div class="banner" role="status">${t().limitHit}</div>` : S.ovStatus === 'error' ? `<div class="banner ${S.ov ? '' : 'err'}" role="status">${S.ov ? t().stale(timeStr(S.ov.t)) : t().error(esc(S.ovError))}</div>` : ''}`;
 }
 
 function footer() {
@@ -505,30 +514,37 @@ function mapView() {
 
 // ---------- wind streamlines ----------
 function windModel() { return M.MODELS[S.model].local ? 'icon_seamless' : S.model; }
-function windKey(date) { return `${windModel()}|${S.mapOpts.windLevel}|${date}`; }
-async function loadWind(date) {
-  const key = windKey(date);
+// One wind download per model covers every day, hour and height; it is kept for 3 hours.
+function windKey() { return `${windModel()}|${M.WIND_GRID.step}`; }
+async function loadWind() {
+  const key = windKey();
   if (S.wind && (S.wind.key === key || S.wind.loading === key)) return;
+  const cached = store.get('wind', null);
+  if (cached && cached.key === key && Date.now() - cached.t < 3 * 3600e3) { S.wind = { ...cached, fields: {} }; render(); return; }
   S.wind = { key: null, loading: key };
   try {
-    const data = await M.fetchWindGrid(windModel(), S.mapOpts.windLevel, date);
-    S.wind = { key, data, fields: {} };
+    const data = await M.fetchWindGrid(windModel());
+    S.wind = { key, t: Date.now(), data, fields: {} };
+    store.set('wind', { key, t: S.wind.t, data });
   } catch (e) {
-    S.wind = { key: null, error: key };
+    if (cached && cached.key === key) S.wind = { ...cached, fields: {} };
+    else S.wind = { key: null, error: key, reason: e.status === 429 ? t().limitHit : t().mapWindFail };
+    if (e.status === 429) S.limitHit = true;
   }
   if (route().view === 'map') render();
 }
-// The same object for the same hour, so re-renders don't restart the animation.
+// The same object for the same hour and height, so re-renders don't restart the animation.
 function windField(date, hour) {
   if (!S.mapOpts.wind) return null;
-  const key = windKey(date);
-  if (!S.wind || (S.wind.key !== key && S.wind.loading !== key && S.wind.error !== key)) { loadWind(date); return null; }
+  const key = windKey();
+  if (!S.wind || (S.wind.key !== key && S.wind.loading !== key && S.wind.error !== key)) { loadWind(); return null; }
   if (S.wind.key !== key) return null;
   const h = hour === 'day' ? 13 : hour;
   const idx = S.wind.data.times.indexOf(`${date}T${pad2(h)}:00`);
   if (idx < 0) return null;
-  if (!S.wind.fields[idx]) S.wind.fields[idx] = { ...S.wind.data, u: S.wind.data.u[idx], v: S.wind.data.v[idx] };
-  return S.wind.fields[idx];
+  const fk = `${S.mapOpts.windLevel}|${idx}`;
+  if (!S.wind.fields[fk]) S.wind.fields[fk] = M.windAtHour(S.wind.data, S.mapOpts.windLevel, idx);
+  return S.wind.fields[fk];
 }
 function windLegend() {
   let lo = 0;
@@ -537,7 +553,7 @@ function windLegend() {
     lo = lim;
     return `<span><i class="wind-sw" style="background:${col}"></i>${label}</span>`;
   }).join('');
-  const state = S.wind && S.wind.error ? `<span class="v-warn">${t().mapWindFail}</span>` : !S.wind || !S.wind.key ? `<span>${t().loading}</span>` : '';
+  const state = S.wind && S.wind.error ? `<span class="v-warn">${S.wind.reason}</span>` : !S.wind || !S.wind.key ? `<span>${t().loading}</span>` : '';
   return `<div class="legend wind-legend"><span><b>${t().mapWind}</b> (${unitLabel()}, ${t().windLevels[S.mapOpts.windLevel]}${S.mapHour === 'day' ? ', 13:00' : ''})</span>${parts}${state}</div>
     <p class="hint">${t().mapWindNote}</p>`;
 }

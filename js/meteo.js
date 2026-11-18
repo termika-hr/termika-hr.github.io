@@ -61,11 +61,7 @@ export function forecastUrl(sites, models) {
 
 export async function fetchForecast(sites, models, signal) {
   const res = await fetch(forecastUrl(sites, models), { signal });
-  if (!res.ok) {
-    let reason = res.status + '';
-    try { reason = (await res.json()).reason || reason; } catch (e) { /* keep status */ }
-    throw new Error(reason);
-  }
+  if (!res.ok) throw await apiError(res);
   const json = await res.json();
   return Array.isArray(json) ? json : [json];
 }
@@ -446,7 +442,7 @@ export async function fetchEnsemble(site, signal) {
     hourly: ENS_VARS.join(','), models: ENS_MODEL, forecast_days: '7', timezone: 'auto', wind_speed_unit: 'kmh',
   });
   const res = await fetch('https://ensemble-api.open-meteo.com/v1/ensemble?' + p.toString(), { signal });
-  if (!res.ok) throw new Error(String(res.status));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -479,35 +475,51 @@ export function ensembleProb(json, site, prof) {
 }
 
 // ---------- wind field for the map's streamlines ----------
-// A 0.5° grid over Croatia (165 points), one day and one level per request.
-export const WIND_GRID = { lat0: 42.0, lon0: 13.0, step: 0.5, nLat: 11, nLon: 15 };
+// A 0.75° grid over Croatia (80 points). One request brings all four heights for 7 days, so
+// changing the day, hour or height costs no further requests (Open-Meteo counts every point).
+export const WIND_GRID = { lat0: 42.0, lon0: 13.0, step: 0.75, nLat: 8, nLon: 10 };
 export const WIND_LEVELS = ['10m', '925', '850', '700'];
+const windVars = (l) => (l === '10m' ? ['wind_speed_10m', 'wind_direction_10m'] : [`wind_speed_${l}hPa`, `wind_direction_${l}hPa`]);
 
-export async function fetchWindGrid(model, level, date, signal) {
+export async function fetchWindGrid(model, signal) {
   const g = WIND_GRID, lats = [], lons = [];
   for (let j = 0; j < g.nLat; j++) for (let i = 0; i < g.nLon; i++) { lats.push((g.lat0 + j * g.step).toFixed(2)); lons.push((g.lon0 + i * g.step).toFixed(2)); }
-  const [vs, vd] = level === '10m' ? ['wind_speed_10m', 'wind_direction_10m'] : [`wind_speed_${level}hPa`, `wind_direction_${level}hPa`];
   const p = new URLSearchParams({
-    latitude: lats.join(','), longitude: lons.join(','), hourly: `${vs},${vd}`, models: model,
-    start_date: date, end_date: date, timezone: 'Europe/Zagreb', wind_speed_unit: 'kmh',
+    latitude: lats.join(','), longitude: lons.join(','), hourly: WIND_LEVELS.flatMap(windVars).join(','), models: model,
+    forecast_days: '7', timezone: 'Europe/Zagreb', wind_speed_unit: 'kmh',
   });
   const res = await fetch('https://api.open-meteo.com/v1/forecast?' + p.toString(), { signal });
-  if (!res.ok) throw new Error(String(res.status));
+  if (!res.ok) throw await apiError(res);
   const json = await res.json();
   const locs = Array.isArray(json) ? json : [json];
-  const times = locs[0].hourly.time;
-  const n = g.nLat * g.nLon;
-  const u = times.map(() => new Float32Array(n)), v = times.map(() => new Float32Array(n));
-  locs.forEach((loc, k) => {
-    const h = loc.hourly;
-    const S = h[vs] || h[`${vs}_${model}`] || [], D = h[vd] || h[`${vd}_${model}`] || [];
-    times.forEach((_, t) => {
-      const ws = S[t], wd = D[t];
-      if (ws == null || wd == null) { u[t][k] = NaN; v[t][k] = NaN; return; }
-      const r = (wd * Math.PI) / 180;           // direction the wind comes from
-      u[t][k] = -ws * Math.sin(r);              // eastward, km/h
-      v[t][k] = -ws * Math.cos(r);              // northward, km/h
-    });
-  });
-  return { ...g, times, u, v };
+  // Compact form for storage: per level, speed and direction rounded, [point][hour].
+  const pick = (h, k) => h[k] || h[`${k}_${model}`] || [];
+  const levels = {};
+  for (const l of WIND_LEVELS) {
+    const [vs, vd] = windVars(l);
+    levels[l] = { s: locs.map((loc) => pick(loc.hourly, vs).map((x) => (x == null ? null : Math.round(x)))), d: locs.map((loc) => pick(loc.hourly, vd)) };
+  }
+  return { ...g, times: locs[0].hourly.time, levels };
+}
+
+// u/v (km/h, toward east/north) for one level and hour, from the compact form.
+export function windAtHour(data, level, idx) {
+  const L = data.levels[level], n = data.nLat * data.nLon;
+  const u = new Float32Array(n), v = new Float32Array(n);
+  for (let k = 0; k < n; k++) {
+    const ws = L.s[k][idx], wd = L.d[k][idx];
+    if (ws == null || wd == null) { u[k] = NaN; v[k] = NaN; continue; }
+    const r = (wd * Math.PI) / 180; // direction the wind comes from
+    u[k] = -ws * Math.sin(r); v[k] = -ws * Math.cos(r);
+  }
+  return { lat0: data.lat0, lon0: data.lon0, step: data.step, nLat: data.nLat, nLon: data.nLon, u, v };
+}
+
+// An Error carrying the HTTP status and Open-Meteo's reason (e.g. the daily limit).
+export async function apiError(res) {
+  let reason = '';
+  try { reason = (await res.json()).reason || ''; } catch (e) { /* not JSON */ }
+  const err = new Error(reason || String(res.status));
+  err.status = res.status;
+  return err;
 }
