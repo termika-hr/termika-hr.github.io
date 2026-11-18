@@ -2,7 +2,7 @@
 import { SITES, REGIONS } from './sites.js';
 import * as M from './meteo.js';
 import { STR, dirLabel, degLabel } from './i18n.js';
-import { showMap } from './map.js';
+import { showMap, WIND_COLORS } from './map.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -31,7 +31,8 @@ const S = {
   hour: null,
   bestDay: 0,
   mapDay: 0, mapHour: 'day',
-  mapOpts: store.get('mapOpts', { thermals: true, stations: true, base: 'topo' }),
+  mapOpts: { thermals: true, stations: true, base: 'topo', wind: false, windLevel: '850', ...store.get('mapOpts', {}) },
+  wind: null,      // wind grid for the map's streamlines
   points: {},      // "lat,lon" -> ground height in m, or 'loading' / 'error'
   shareCtx: null,
 };
@@ -487,6 +488,8 @@ function mapView() {
   const toggles = `<div class="toggles">
       <button type="button" class="tog" data-maplayer="thermals" aria-pressed="${o.thermals}">${t().mapThermals}</button>
       <button type="button" class="tog" data-maplayer="stations" aria-pressed="${o.stations}">${t().mapStations}</button>
+      <button type="button" class="tog" data-maplayer="wind" aria-pressed="${o.wind}">${t().mapWind}</button>
+      ${o.wind ? `<label class="sel-wrap"><span class="sr">${t().mapWindLevel}</span><select id="map-wlevel" class="input">${M.WIND_LEVELS.map((l) => `<option value="${l}"${o.windLevel === l ? ' selected' : ''}>${t().windLevels[l]}</option>`).join('')}</select></label>` : ''}
       <div class="seg" role="group"><button type="button" data-mapbase="topo" aria-pressed="${o.base === 'topo'}">${t().mapTerrain}</button><button type="button" data-mapbase="osm" aria-pressed="${o.base === 'osm'}">${t().mapStreet}</button></div>
     </div>`;
   const legend = ['go', 'maybe', 'no'].map((k) => `<span><i class="dot st-${k}"></i>${t().state[k]}</span>`).join('');
@@ -494,7 +497,47 @@ function mapView() {
     <div id="map-slot" class="map-slot"></div>
     <div class="legend">${legend}<span>${t().mapHint}</span></div>
     ${o.thermals ? `<p class="hint">${t().mapThermalNote}</p>` : ''}
-    ${o.stations ? obsLateNote() : ''}`;
+    ${o.stations ? obsLateNote() : ''}
+    ${o.wind ? windLegend() : ''}`;
+}
+
+// ---------- wind streamlines ----------
+function windModel() { return M.MODELS[S.model].local ? 'icon_seamless' : S.model; }
+function windKey(date) { return `${windModel()}|${S.mapOpts.windLevel}|${date}`; }
+async function loadWind(date) {
+  const key = windKey(date);
+  if (S.wind && (S.wind.key === key || S.wind.loading === key)) return;
+  S.wind = { key: null, loading: key };
+  try {
+    const data = await M.fetchWindGrid(windModel(), S.mapOpts.windLevel, date);
+    S.wind = { key, data, fields: {} };
+  } catch (e) {
+    S.wind = { key: null, error: key };
+  }
+  if (route().view === 'map') render();
+}
+// The same object for the same hour, so re-renders don't restart the animation.
+function windField(date, hour) {
+  if (!S.mapOpts.wind) return null;
+  const key = windKey(date);
+  if (!S.wind || (S.wind.key !== key && S.wind.loading !== key && S.wind.error !== key)) { loadWind(date); return null; }
+  if (S.wind.key !== key) return null;
+  const h = hour === 'day' ? 13 : hour;
+  const idx = S.wind.data.times.indexOf(`${date}T${pad2(h)}:00`);
+  if (idx < 0) return null;
+  if (!S.wind.fields[idx]) S.wind.fields[idx] = { ...S.wind.data, u: S.wind.data.u[idx], v: S.wind.data.v[idx] };
+  return S.wind.fields[idx];
+}
+function windLegend() {
+  let lo = 0;
+  const parts = WIND_COLORS.map(([lim, col]) => {
+    const label = lim === Infinity ? `> ${wNum(lo)}` : `${wNum(lo)}–${wNum(lim)}`;
+    lo = lim;
+    return `<span><i class="wind-sw" style="background:${col}"></i>${label}</span>`;
+  }).join('');
+  const state = S.wind && S.wind.error ? `<span class="v-warn">${t().mapWindFail}</span>` : !S.wind || !S.wind.key ? `<span>${t().loading}</span>` : '';
+  return `<div class="legend wind-legend"><span><b>${t().mapWind}</b> (${unitLabel()}, ${t().windLevels[S.mapOpts.windLevel]}${S.mapHour === 'day' ? ', 13:00' : ''})</span>${parts}${state}</div>
+    <p class="hint">${t().mapWindNote}</p>`;
 }
 
 function freshStations() {
@@ -544,6 +587,7 @@ function mapData() {
   return {
     sites, stations, base: S.mapOpts.base,
     kk7: S.mapOpts.thermals && ref ? kk7Layer(ref.date, hour, ref.sunrise) : null,
+    wind: ref ? windField(ref.date, hour) : null,
     failText: t().mapFail,
     zoomHint: t().mapZoomHint, zoomBtn: t().mapZoomBtn,
     onAction: handleClick, // Leaflet stops clicks inside popups from reaching the document
@@ -1008,6 +1052,7 @@ async function handleClick(b) {
   if (!act) return;
   S.shareOpen = act.startsWith('share');
   if (act === 'refresh') {
+    S.wind = null;
     loadOverview(true);
     loadAladin();
     loadObs();
@@ -1077,6 +1122,7 @@ document.addEventListener('change', (e) => {
   }
   if (el.name === 'model') setPref('model', el.value);
   if (el.id === 'map-hour') { S.mapHour = el.value === 'day' ? 'day' : +el.value; render(); }
+  if (el.id === 'map-wlevel') { S.mapOpts.windLevel = el.value; store.set('mapOpts', S.mapOpts); render(); }
   if (el.id && el.id.startsWith('lim-')) {
     // Inputs are in the chosen unit; limits are kept in km/h. Only the edited field is
     // converted back, so the others don't drift through rounding.

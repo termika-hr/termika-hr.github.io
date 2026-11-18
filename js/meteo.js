@@ -477,3 +477,37 @@ export function ensembleProb(json, site, prof) {
   });
   return { prob: out, members: members.length };
 }
+
+// ---------- wind field for the map's streamlines ----------
+// A 0.5° grid over Croatia (165 points), one day and one level per request.
+export const WIND_GRID = { lat0: 42.0, lon0: 13.0, step: 0.5, nLat: 11, nLon: 15 };
+export const WIND_LEVELS = ['10m', '925', '850', '700'];
+
+export async function fetchWindGrid(model, level, date, signal) {
+  const g = WIND_GRID, lats = [], lons = [];
+  for (let j = 0; j < g.nLat; j++) for (let i = 0; i < g.nLon; i++) { lats.push((g.lat0 + j * g.step).toFixed(2)); lons.push((g.lon0 + i * g.step).toFixed(2)); }
+  const [vs, vd] = level === '10m' ? ['wind_speed_10m', 'wind_direction_10m'] : [`wind_speed_${level}hPa`, `wind_direction_${level}hPa`];
+  const p = new URLSearchParams({
+    latitude: lats.join(','), longitude: lons.join(','), hourly: `${vs},${vd}`, models: model,
+    start_date: date, end_date: date, timezone: 'Europe/Zagreb', wind_speed_unit: 'kmh',
+  });
+  const res = await fetch('https://api.open-meteo.com/v1/forecast?' + p.toString(), { signal });
+  if (!res.ok) throw new Error(String(res.status));
+  const json = await res.json();
+  const locs = Array.isArray(json) ? json : [json];
+  const times = locs[0].hourly.time;
+  const n = g.nLat * g.nLon;
+  const u = times.map(() => new Float32Array(n)), v = times.map(() => new Float32Array(n));
+  locs.forEach((loc, k) => {
+    const h = loc.hourly;
+    const S = h[vs] || h[`${vs}_${model}`] || [], D = h[vd] || h[`${vd}_${model}`] || [];
+    times.forEach((_, t) => {
+      const ws = S[t], wd = D[t];
+      if (ws == null || wd == null) { u[t][k] = NaN; v[t][k] = NaN; return; }
+      const r = (wd * Math.PI) / 180;           // direction the wind comes from
+      u[t][k] = -ws * Math.sin(r);              // eastward, km/h
+      v[t][k] = -ws * Math.cos(r);              // northward, km/h
+    });
+  });
+  return { ...g, times, u, v };
+}

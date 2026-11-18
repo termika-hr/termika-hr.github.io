@@ -451,6 +451,9 @@ dialog::backdrop { background: rgba(8, 14, 20, 0.55); }
 }
 .stn svg { width: 12px; height: 12px; }
 .stn.old { opacity: 0.55; }
+.wind-canvas { position: absolute; left: 0; top: 0; pointer-events: none; }
+.wind-legend { align-items: center; }
+.wind-sw { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; }
 .stn svg path { fill: var(--sky); }
 
 @media (max-width: 560px) {

@@ -107,6 +107,130 @@ function syncStations() {
   }
 }
 
+// ---------- wind streamlines ----------
+// Particles drift with the wind, leaving short fading trails (the Windy look). They are drawn on
+// one canvas in their own pane, above the tiles and below the markers, and ignore clicks.
+// Colours by speed (km/h): calm navy → purple → magenta → red → dark red for storms.
+export const WIND_COLORS = [[10, '#1e3a8a'], [20, '#6d28d9'], [30, '#be185d'], [45, '#dc2626'], [Infinity, '#7f1d1d']];
+let WindLayer = null, windLayer = null;
+
+function windClass(L) {
+  return L.Layer.extend({
+    onAdd(m) {
+      if (!m.getPane('wind')) { const p = m.createPane('wind'); p.style.zIndex = 450; p.style.pointerEvents = 'none'; }
+      this._canvas = L.DomUtil.create('canvas', 'wind-canvas', m.getPane('wind'));
+      this._ctx = this._canvas.getContext('2d');
+      m.on('movestart zoomstart', this._stop, this);
+      m.on('moveend zoomend resize', this._reset, this);
+      this._reset();
+    },
+    onRemove(m) {
+      this._stop();
+      m.off('movestart zoomstart', this._stop, this);
+      m.off('moveend zoomend resize', this._reset, this);
+      this._canvas.remove();
+    },
+    setField(f) { this._f = f; if (this._map) this._reset(); },
+    _stop() {
+      if (this._raf) cancelAnimationFrame(this._raf);
+      this._raf = null;
+      if (this._ctx) this._ctx.clearRect(0, 0, this._w || 0, this._h || 0);
+    },
+    _reset() {
+      this._stop();
+      const m = this._map, f = this._f;
+      if (!m || !f) return;
+      const size = m.getSize(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+      L.DomUtil.setPosition(this._canvas, m.containerPointToLayerPoint([0, 0]));
+      this._canvas.width = size.x * dpr; this._canvas.height = size.y * dpr;
+      this._canvas.style.width = size.x + 'px'; this._canvas.style.height = size.y + 'px';
+      this._ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this._w = size.x; this._h = size.y;
+      // Wind on a 10 px screen grid: pixels per frame plus speed, so the animation only does lookups.
+      const C = 10, cols = Math.ceil(size.x / C) + 1, rows = Math.ceil(size.y / C) + 1;
+      const grid = new Float32Array(cols * rows * 3);
+      const K = 0.035; // px per frame for each km/h
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const ll = m.containerPointToLatLng([c * C, r * C]);
+        const w = sample(f, ll.lat, ll.lng), o = (r * cols + c) * 3;
+        if (!w) { grid[o] = NaN; continue; }
+        grid[o] = w[0] * K; grid[o + 1] = -w[1] * K; grid[o + 2] = Math.hypot(w[0], w[1]);
+      }
+      this._g = { grid, cols, rows, C };
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) { this._static(); return; }
+      const n = Math.min(2000, Math.round((size.x * size.y) / 400));
+      this._p = Array.from({ length: n }, () => this._spawn({}));
+      this._loop();
+    },
+    _at(x, y) {
+      const { grid, cols, rows, C } = this._g;
+      const c = Math.round(x / C), r = Math.round(y / C);
+      if (c < 0 || r < 0 || c >= cols || r >= rows) return null;
+      const o = (r * cols + c) * 3;
+      return Number.isNaN(grid[o]) ? null : o;
+    },
+    _spawn(p) {
+      p.x = Math.random() * this._w; p.y = Math.random() * this._h; p.age = Math.floor(Math.random() * 80);
+      return p;
+    },
+    _loop() {
+      if (!this._canvas.isConnected) { this._raf = null; return; } // map view closed
+      this._raf = requestAnimationFrame(() => this._loop());
+      if (document.hidden) return;
+      const ctx = this._ctx, g = this._g.grid;
+      ctx.globalCompositeOperation = 'destination-in';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+      ctx.fillRect(0, 0, this._w, this._h);
+      ctx.globalCompositeOperation = 'source-over';
+      const paths = WIND_COLORS.map(() => new Path2D());
+      for (const p of this._p) {
+        const o = this._at(p.x, p.y);
+        if (o == null || p.age++ > 90) { this._spawn(p); continue; }
+        const nx = p.x + g[o], ny = p.y + g[o + 1], s = g[o + 2];
+        const b = WIND_COLORS.findIndex(([lim]) => s < lim);
+        paths[b].moveTo(p.x, p.y); paths[b].lineTo(nx, ny);
+        p.x = nx; p.y = ny;
+      }
+      ctx.lineWidth = 1.5; ctx.lineCap = 'round'; ctx.globalAlpha = 0.9;
+      paths.forEach((path, i) => { ctx.strokeStyle = WIND_COLORS[i][1]; ctx.stroke(path); });
+      ctx.globalAlpha = 1;
+    },
+    // No animation for people who asked their system for less motion: short arrows instead.
+    _static() {
+      const ctx = this._ctx, g = this._g.grid;
+      ctx.lineWidth = 1.6;
+      for (let y = 20; y < this._h; y += 40) for (let x = 20; x < this._w; x += 40) {
+        const o = this._at(x, y);
+        if (o == null) continue;
+        const s = g[o + 2], len = Math.hypot(g[o], g[o + 1]) || 1, ux = g[o] / len, uy = g[o + 1] / len;
+        ctx.strokeStyle = WIND_COLORS[WIND_COLORS.findIndex(([lim]) => s < lim)][1];
+        ctx.beginPath(); ctx.moveTo(x - ux * 12, y - uy * 12); ctx.lineTo(x + ux * 12, y + uy * 12);
+        ctx.lineTo(x + ux * 6 - uy * 5, y + uy * 6 + ux * 5); ctx.moveTo(x + ux * 12, y + uy * 12);
+        ctx.lineTo(x + ux * 6 + uy * 5, y + uy * 6 - ux * 5); ctx.stroke();
+      }
+    },
+  });
+}
+
+// Bilinear wind (u, v in km/h) at a point, or null outside the grid.
+function sample(f, lat, lon) {
+  const fi = (lon - f.lon0) / f.step, fj = (lat - f.lat0) / f.step;
+  if (fi < 0 || fj < 0 || fi > f.nLon - 1 || fj > f.nLat - 1) return null;
+  const i = Math.min(Math.floor(fi), f.nLon - 2), j = Math.min(Math.floor(fj), f.nLat - 2);
+  const a = fi - i, b = fj - j, k = j * f.nLon + i;
+  const mix = (A) => (A[k] * (1 - a) + A[k + 1] * a) * (1 - b) + (A[k + f.nLon] * (1 - a) + A[k + f.nLon + 1] * a) * b;
+  const u = mix(f.u), v = mix(f.v);
+  return Number.isNaN(u) || Number.isNaN(v) ? null : [u, v];
+}
+
+function syncWind(L, wind) {
+  if (!wind) { if (windLayer && map.hasLayer(windLayer)) map.removeLayer(windLayer); return; }
+  if (!WindLayer) WindLayer = windClass(L);
+  if (!windLayer) windLayer = new WindLayer();
+  if (!map.hasLayer(windLayer)) windLayer.addTo(map);
+  windLayer.setField(wind);
+}
+
 function update(L, data) {
   if (baseKey !== data.base) {
     if (baseKey) map.removeLayer(base[baseKey]);
@@ -137,6 +261,7 @@ function update(L, data) {
   add(layers.sites, data.sites, [30, 30], 'pin-wrap');
   add(layers.stations, data.stations, [46, 22], 'stn-wrap');
   syncStations();
+  syncWind(L, data.wind);
   if (!fitted && data.sites.length) {
     map.fitBounds(L.latLngBounds(data.sites.map((s) => [s.lat, s.lon])).pad(0.12));
     fitted = true;
