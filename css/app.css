@@ -200,9 +200,6 @@ h3 { font-size: 1.1rem; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 
 /* ---------- detail ---------- */
-.crumbs { display: flex; gap: 18px; flex-wrap: wrap; }
-.crumbs a { text-decoration: none; color: var(--muted); font-weight: 500; }
-.crumbs a:hover { color: var(--ink); }
 .site-head { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: start; }
 .site-head .rose-big { width: 76px; height: 76px; }
 .site-head h1 { font-size: 2rem; }

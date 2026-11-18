@@ -618,7 +618,7 @@ function mapFocus(r) {
   return s ? { key: r.focus, id: s.id, lat: s.lat, lon: s.lon } : null;
 }
 
-function siteHead(site, di = 0) {
+function siteHead(site) {
   const fav = S.favs.includes(site.id);
   const actions = [
     `<button type="button" class="icon-btn" data-act="share-site" aria-label="${t().shareForecast}" title="${t().shareForecast}">${IC.share}</button>`,
@@ -626,8 +626,7 @@ function siteHead(site, di = 0) {
     !site.point ? `<button type="button" class="icon-btn" data-act="fav" aria-pressed="${fav}" aria-label="${fav ? t().favRemove : t().favAdd}" title="${fav ? t().favRemove : t().favAdd}">${IC.star}</button>` : '',
     site.custom ? `<button type="button" class="icon-btn" data-act="edit-site" data-id="${esc(site.id)}" aria-label="${t().edit}" title="${t().edit}">${IC.edit}</button>` : '',
   ].join('');
-  return `<nav class="crumbs"><a href="#">← ${t().allSites}</a><a href="${mapHrefFor(site, di)}">${t().viewMap}</a></nav>
-  <section class="site-head">
+  return `<section class="site-head">
     ${rose(site.dirs, 'rose-big', true)}
     <div>
       <h1>${esc(site.name)}</h1>
@@ -643,7 +642,7 @@ function siteHead(site, di = 0) {
 
 function pointPending(r) {
   const st = S.points[r.point.key];
-  return `<nav class="crumbs"><a href="#">← ${t().allSites}</a><a href="#view=map">${t().viewMap}</a></nav><p class="boot">${st === 'error' ? t().pointFail : t().pointLoading}</p>`;
+  return `<p class="boot">${st === 'error' ? t().pointFail : t().pointLoading}</p>`;
 }
 
 function agreement(date) {
@@ -690,7 +689,7 @@ function liveSection(site) {
 
 function detailView(site, di) {
   const days = siteDays(site);
-  const head = siteHead(site, di);
+  const head = siteHead(site);
   if (!days || !days[di]) {
     const msg = S.dtStatus === 'error' && (S.ovStatus === 'error' || site.point) ? t().error(esc(S.ovError || '')) : t().loading;
     return head + `<p class="boot">${msg}</p>`;
