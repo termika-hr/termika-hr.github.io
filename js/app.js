@@ -484,9 +484,20 @@ function kk7Layer(date, hour, sunrise) {
   return `thermals_all_${after < 5 ? '04' : after < 8 ? '07' : '10'}`;
 }
 
+// Days for the map. Without a forecast (e.g. the daily request limit) the map still works:
+// the next 7 dates, sites without a rating, streamlines and stations as usual.
+function mapDays() {
+  const first = S.ov ? Object.values(S.ov.days)[0] || [] : [];
+  if (first.length) return first;
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(Date.now() + i * 864e5);
+    const date = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    return { date, sunrise: null, hours: Array.from({ length: 12 }, (_, k) => ({ hour: 7 + k, daylight: true })) };
+  });
+}
+
 function mapView() {
-  if (!S.ov) return `<p class="boot">${S.ovStatus === 'error' ? t().error(esc(S.ovError || '')) : t().loading}</p>`;
-  const first = Object.values(S.ov.days)[0] || [];
+  const first = mapDays();
   const di = Math.min(S.mapDay, first.length - 1);
   const day = first[di];
   const chips = first.map((d, i) => { const p = dayParts(d.date); return `<button type="button" class="chip${p.weekend ? ' wknd' : ''}" data-mapday="${i}" aria-pressed="${i === di}">${i === 0 ? t().today : p.wd} <b>${p.dd}</b></button>`; }).join('');
@@ -641,11 +652,11 @@ function stationWind(s) {
 }
 
 function mapData() {
-  const first = Object.values(S.ov.days)[0] || [];
+  const first = mapDays();
   const di = Math.min(S.mapDay, first.length - 1);
   const hour = S.mapHour;
-  const sites = allSites().filter((s) => S.ov.days[s.id]).map((s) => {
-    const d = S.ov.days[s.id][di];
+  const sites = allSites().map((s) => {
+    const d = S.ov?.days[s.id]?.[di] || { hours: [], summary: { state: 'nodata', topAgl: 0, rating: 0 } };
     const h = hour === 'day' ? null : d.hours.find((x) => x.hour === hour);
     const state = hour === 'day' ? d.summary.state : h ? h.state : 'nodata';
     const sum = d.summary;
@@ -1284,7 +1295,7 @@ function render() {
     else { const cell = sc.querySelector('th.sel'); if (cell) sc.scrollLeft = Math.max(0, cell.offsetLeft - sc.clientWidth / 2); }
   }
   S.keepScroll = true;
-  if (r.view === 'map' && S.ov) { const slot = $('#map-slot'); if (slot) showMap(slot, mapData()); }
+  if (r.view === 'map') { const slot = $('#map-slot'); if (slot) showMap(slot, mapData()); }
 }
 
 function onRoute() {
