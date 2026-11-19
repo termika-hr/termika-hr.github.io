@@ -5,6 +5,10 @@ Sources (both free to reuse with attribution):
 - DHMZ, Croatian Meteorological and Hydrological Service: https://vrijeme.hr/hrvatska_n.xml
   (about 60 stations, hourly; wind in m/s, direction as an 8-point compass). Izvor: DHMZ.
 - METAR airport reports via NOAA's Aviation Weather Center API (public domain), with gusts.
+- ARSO, Slovenian Environment Agency, automatic stations (about 55 with wind, every 10 minutes,
+  including mountain stations next to Istria and Kvarner such as Slavnik and Sviščaki):
+  https://meteo.arso.gov.si/uploads/probase/www/observ/surface/text/sl/observationAms_si_latest.xml
+  Vir: ARSO.
 - OpenWindMap (Pioupiou) wind stations, often on paragliding launches: https://api.pioupiou.fr/v1/live/all
   (Community License: credit "Wind data (c) contributors of the OpenWindMap wind network" with a
   link to https://www.openwindmap.org; speeds in km/h, averaged over the last 4 minutes).
@@ -22,6 +26,7 @@ UA = 'termika-obs/1.0 (+https://termika-hr.github.io/)'
 DHMZ_URL = 'https://vrijeme.hr/hrvatska_n.xml'
 METAR_URL = 'https://aviationweather.gov/api/data/metar?ids={}&format=json&hours=3'
 OWM_URL = 'https://api.pioupiou.fr/v1/live/all'
+ARSO_URL = 'https://meteo.arso.gov.si/uploads/probase/www/observ/surface/text/sl/observationAms_si_latest.xml'
 OWM_AREA = (42.3, 13.2, 46.7, 19.5)   # lat/lon box: Croatia and the nearby parts of its neighbours
 OWM_MAX_AGE_H = 3
 # Airports in and around Croatia; ids without reports are simply skipped by the API.
@@ -79,6 +84,27 @@ def metar():
         })
     return out
 
+def arso():
+    root = ET.fromstring(get(ARSO_URL))
+    out = []
+    for m in root.findall('metData'):
+        g = lambda k: (m.findtext(k) or '').strip()
+        ws = num(g('ffavg_val_kmh'))
+        lat, lon = num(g('domain_lat')), num(g('domain_lon'))
+        if ws is None or lat is None or lon is None: continue
+        try:
+            when = dt.datetime.strptime(g('tsValid_issued_RFC822'), '%d %b %Y %H:%M:%S %z')
+        except ValueError:
+            continue
+        elev = num(g('domain_altitude'))
+        out.append({
+            'id': 'arso:' + (g('domain_meteosiId') or g('domain_title')), 'name': g('domain_longTitle') or g('domain_title').title(),
+            'src': 'ARSO', 'lat': lat, 'lon': lon, 'elev': None if elev is None else round(elev),
+            'time': when.astimezone(dt.timezone.utc).strftime('%Y-%m-%dT%H:%MZ'),
+            'ws': ws, 'wd': num(g('ddavg_val')), 'wg': num(g('ffmax_val_kmh')), 't': num(g('t')),
+        })
+    return out
+
 def owm():
     now = dt.datetime.now(dt.timezone.utc)
     out = []
@@ -104,7 +130,7 @@ def main():
     ap.add_argument('--out', default=str(ROOT / 'data' / 'obs.json'))
     args = ap.parse_args()
     stations, errors = [], []
-    for name, fn in (('DHMZ', dhmz), ('METAR', metar), ('OpenWindMap', owm)):
+    for name, fn in (('DHMZ', dhmz), ('METAR', metar), ('ARSO', arso), ('OpenWindMap', owm)):
         try:
             got = fn(); stations += got
             print(f'{name}: {len(got)} stations', file=sys.stderr)
