@@ -10,7 +10,8 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '*/30 * * * *'
+    # Off the full and half hour: GitHub drops many scheduled runs at busy minutes.
+    - cron: '4,19,34,49 * * * *'
   workflow_dispatch:
 
 permissions:
