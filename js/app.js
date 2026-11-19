@@ -940,6 +940,7 @@ function hourlyTable(site, hours, sel) {
     ['wstar', (h) => (h.a && h.a.wstar > 0.2 ? dec1(h.a.wstar) : '<span class="dim">–</span>')],
     ['cloud', (h) => (h.cc == null ? '–' : `${h.cc}<span class="dim"> (${h.ccl ?? '–'})</span>`), 'sep'],
     ['rain', (h) => (h.pr > 0 ? `<span class="${h.pr >= 0.5 ? 'v-bad' : 'v-warn'}">${F.mm(h.pr)}</span>` : '<span class="dim">–</span>')],
+    ['vis', (h) => visCell(h)],
     ['cape', (h) => (h.cape >= 50 ? `<span class="${h.cape >= 1500 ? 'v-bad' : h.cape >= 500 ? 'v-warn' : ''}">${Math.round(h.cape)}</span>` : '<span class="dim">–</span>')],
     ['temp', (h) => (h.T == null ? '–' : Math.round(h.T))],
   ].filter(Boolean);
@@ -948,6 +949,16 @@ function hourlyTable(site, hours, sel) {
   return `<section class="card"><div class="card-head"><h2>${t().hourly}</h2>${unitSeg()}</div><div class="table-scroll" id="hscroll"><table class="htable">
     <thead><tr><th scope="row"></th>${hours.map((h) => `<th${cls(h)}><button type="button" data-hour="${h.hour}" aria-pressed="${h.hour === sel}">${pad2(h.hour)}</button></th>`).join('')}</tr></thead>
     <tbody>${body}</tbody></table></div></section>`;
+}
+
+// Visibility in km under 10 km (red under 1.5 km, yellow under 5 km); fog is named.
+function visCell(h) {
+  const fog = M.isFog(h);
+  const km = h.vis != null ? h.vis / 1000 : null;
+  const txt = km == null ? '' : km < 10 ? (S.lang === 'hr' ? km.toFixed(1).replace('.', ',') : km.toFixed(1)) : '';
+  if (fog) return `<span class="v-bad" title="${t().fogTip}">${t().fogShort}</span>`;
+  if (km == null || km >= 10) return '<span class="dim">–</span>';
+  return `<span class="${km < 1.5 ? 'v-bad' : km < 5 ? 'v-warn' : ''}">${txt}</span>`;
 }
 
 function altitudeGrid(site, hours, sel) {

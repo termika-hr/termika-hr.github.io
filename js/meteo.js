@@ -320,6 +320,9 @@ export function conditionsAt(h, z, site) {
   return { ws: w ? w.ws : null, wd: w ? w.wd : null, T, cloud, thermal, launch };
 }
 
+const wet = (h) => (h.pr ?? 0) >= 0.1 || (h.code ?? 0) >= 51;
+export const isFog = (h) => h.code === 45 || h.code === 48 || (h.vis != null && h.vis < 1000 && !wet(h));
+
 export function scoreHour(h, a, site, prof, daylight) {
   if (!a) return { state: 'nodata', reasons: [] };
   if (!daylight) return { state: 'night', reasons: [] };
@@ -353,7 +356,13 @@ export function scoreHour(h, a, site, prof, daylight) {
   if (a.airMax.ws > prof.air) add(2, 'air', a.airMax.ws);
   else if (a.airMax.ws > prof.air * 0.8) add(1, 'airHigh', a.airMax.ws);
   if (a.base - site.elev < 100 && (h.ccl ?? 0) >= 60) add(2, 'cloudLaunch');
-  if (h.vis != null && h.vis < 2000) add(2, 'vis', h.vis);
+  // Fog: the model's fog weather code or visibility under 1 km. These are values for the model's grid
+  // cell, so they describe the valley and landing more than a launch above the fog, but a landing in
+  // fog rules the hour out either way. Low visibility in rain or snow isn't fog (rain has its own rule).
+  // Under 1.5 km is below the VFR minimum; under 5 km without precipitation is a warning (mist, haze).
+  if (isFog(h)) add(2, 'fog', h.vis);
+  else if (h.vis != null && h.vis < 1500) add(2, 'vis', h.vis);
+  else if (h.vis != null && h.vis < 5000 && !wet(h)) add(1, 'visLow', h.vis);
   if ((a.cu && a.cloudTop >= 5000) || (h.cape ?? 0) >= 1500) add(2, 'storm', h.cape);
   else if ((h.cape ?? 0) >= 500 || (a.cu && a.cloudTop - a.base >= 2500)) add(1, 'overdev', h.cape);
 
