@@ -592,7 +592,7 @@ function mapView() {
   const legend = ['go', 'maybe', 'no'].map((k) => `<span><i class="dot st-${k}"></i>${t().state[k]}</span>`).join('');
   return `<section class="mapbar"><div class="chips" role="group">${chips}</div><div class="mapbar-row">${hourSel}${toggles}</div></section>
     <div id="map-slot" class="map-slot"></div>
-    <div class="legend">${legend}<span>${t().mapHint}</span></div>
+    <div class="legend">${legend}<span>${S.mapHour === 'day' ? t().mapHint : `${t().mapPinWind} ${t().mapHint}`}</span></div>
     ${o.thermals ? `<p class="hint">${t().mapThermalNote}</p>` : ''}
     ${o.stations ? obsLateNote() : ''}
     ${o.wind ? windLegend() : ''}
@@ -726,6 +726,15 @@ function stationWind(s) {
   return `<span class="wind">${arrow(s.wd)}${wNum(s.ws)} ${unitLabel()}</span>${s.wg ? ` <span class="dim">${t().gustShort} ${wNum(s.wg)}</span>` : ''}`;
 }
 
+// Wind at the launch for the chosen hour, under its map pin: the site's own forecast at launch
+// height, coloured like the hourly table (limits and direction against the launch).
+function pinWind(h, site) {
+  const p = prof();
+  let c = h.ws > p.wind ? 'v-bad' : h.ws > p.wind * 0.8 ? 'v-warn' : 'v-ok';
+  if (h.ws >= 5 && site.dirs?.length) { const off = M.offAngle(h.wd, site.dirs); if (off > 45) c = 'v-bad'; else if (off > 22.5 && c === 'v-ok') c = 'v-warn'; }
+  return `<span class="pin-wind ${c}">${h.ws >= 1 ? arrow(h.wd) : ''}${h.ws < 1 ? '0' : wNum(h.ws)}</span>`;
+}
+
 function mapData() {
   const first = mapDays();
   const di = Math.min(S.mapDay, first.length - 1);
@@ -740,7 +749,7 @@ function mapData() {
       : h && h.a ? `${degLabel(h.wd, S.lang)} ${F.w(h.ws)}${h.a.topAgl >= 150 ? ` · ${t().thermalsTo(m50(h.a.top))}` : ''}` : '';
     return {
       id: s.id, lat: s.lat, lon: s.lon, name: s.name,
-      icon: `<div class="pin st-${state}">${rose(s.dirs)}</div>`,
+      icon: `<div class="pin st-${state}">${rose(s.dirs)}${h && h.ws != null ? pinWind(h, s) : ''}</div>`,
       popup: `<div class="pop"><b>${esc(s.name)}</b><span class="dim">${Math.round(s.elev)} m · ${dirsText(s.dirs)}</span><span><span class="pill st-${state}">${t().state[state]}</span> ${stars(hour === 'day' ? sum.rating : 0)}</span>${info ? `<span>${info}</span>` : ''}<a href="${hrefFor(s, di)}">${t().mapOpen} →</a></div>`,
     };
   });
