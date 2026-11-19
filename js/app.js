@@ -1112,6 +1112,7 @@ function links(site) {
       ${a('https://meteo.hr/naslovnica_radarska-slika.php?tab=radari', t().lRadar)}
       ${a('https://meteo.hr/podaci.php?section=podaci_mjerenja&amp;param=satelit', t().lSat)}
       ${a(`https://map.blitzortung.org/#9/${lat}/${lon}`, t().lLightning)}
+      ${a('https://pljusak.com/karta_sve.php', t().lPljusak)}
       ${a('https://www.openaip.net/map', t().lAirspace)}
       ${a('http://amc.crocontrol.hr/', t().lAmc)}
       ${a(`https://thermal.kk7.ch/#${lat},${lon},13`, t().lThermals)}
