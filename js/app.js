@@ -963,6 +963,7 @@ function detailView(site, di) {
   const ag = agreement(day.date);
   const en = ensSummary(site, day);
   const gr = groundFor(site, day.date);
+  const fg = fogSummary(day, dm);
   const agCls = ag ? (ag.go / ag.n >= 0.7 ? 'v-ok' : ag.go / ag.n >= 0.4 ? 'v-warn' : 'v-bad') : '';
   const enCls = en ? (en.p >= 0.7 ? 'v-ok' : en.p >= 0.4 ? 'v-warn' : 'v-bad') : '';
   // Each label opens a short explanation of that figure under the grid.
@@ -974,6 +975,7 @@ function detailView(site, di) {
     <div><dt>${kt('wstar', t().wstar)}</dt><dd class="num">${sum.wstar > 0.2 ? `${dec1(sum.wstar)} m/s` : '–'}<small>${t().est}</small></dd></div>
     ${ag ? `<div><dt>${kt('agree', t().agree)}</dt><dd class="num ${agCls}">${ag.go}/${ag.n}<small>${t().agreeText(ag.go, ag.n)}</small></dd></div>` : ''}
     ${gr ? groundKpi(gr).replace('%KT%', kt('ground', t().groundKpi)) : ''}
+    ${fg ? `<div><dt>${kt('fog', t().fogKpi)}</dt><dd class="${fg.cls}">${fg.main}<small>${fg.note}</small></dd></div>` : ''}
     ${en ? `<div><dt>${kt('ens', t().ens)}</dt><dd class="num ${enCls}">${Math.round(en.p * 100)} %<small>${en.text} · ${t().ensSrc}</small></dd></div>` : ''}
   </dl>${S.kpiHelp && t().kpiHelp[S.kpiHelp] ? `<p class="kpi-help" id="kpi-help">${t().kpiHelp[S.kpiHelp]}</p>` : ''}`;
   const reasonLine = sum.state === 'no' && sum.mainReason ? `<span>${t().mainReason}: ${t().short[sum.mainReason]}</span>` : '';
@@ -1020,6 +1022,26 @@ function hourlyTable(site, hours, sel) {
   return `<section class="card"><div class="card-head"><h2>${t().hourly}</h2>${unitSeg()}</div><div class="table-scroll" id="hscroll"><table class="htable">
     <thead><tr><th scope="row"></th>${hours.map((h) => `<th${cls(h)}><button type="button" data-hour="${h.hour}" aria-pressed="${h.hour === sel}">${pad2(h.hour)}</button></th>`).join('')}</tr></thead>
     <tbody>${body}</tbody></table></div></section>`;
+}
+
+// Fog and visibility over the daylight hours of a day, from the shown model.
+function fmtVis(v) {
+  if (v < 1000) return `${Math.max(100, Math.round(v / 100) * 100)} m`;
+  const km = (v / 1000).toFixed(1);
+  return `${S.lang === 'hr' ? km.replace('.', ',') : km} km`;
+}
+function fogSummary(day, model) {
+  const hrs = day.hours.filter((h) => h.daylight && h.state !== 'nodata');
+  if (!hrs.length) return null;
+  const vis = hrs.map((h) => h.vis).filter((v) => v != null);
+  const min = vis.length ? Math.min(...vis) : null;
+  const fog = hrs.filter((h) => M.isFog(h)).map((h) => h.hour);
+  const label = M.MODELS[model]?.label || '';
+  if (fog.length) return { cls: 'v-bad', main: t().fogHours(fog[0], fog[fog.length - 1] + 1), note: min != null ? t().visMin(fmtVis(min)) : t().fogCodeOnly(label) };
+  if (min == null && !hrs.some((h) => h.code != null)) return { cls: '', main: '–', note: t().fogNoData(label) };
+  const low = hrs.filter((h) => h.vis != null && h.vis < 5000).map((h) => h.hour);
+  if (low.length) return { cls: 'v-warn', main: t().hazeHours(low[0], low[low.length - 1] + 1), note: t().visMin(fmtVis(min)) };
+  return { cls: 'v-ok', main: t().fogNone, note: min != null ? t().visMin(fmtVis(min)) : t().fogCodeOnly(label) };
 }
 
 // Visibility in km under 10 km (red under 1.5 km, yellow under 5 km); fog is named.
