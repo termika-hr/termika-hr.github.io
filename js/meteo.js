@@ -513,6 +513,40 @@ export function ensembleProb(json, site, prof) {
   return { prob: out, members: members.length };
 }
 
+// ---------- ground wetness ----------
+// A small surface "bucket": rain fills it (at most 10 mm count), reference evapotranspiration and
+// a little drainage (1 % an hour) empty it. Read at 10 h every day: from 3 mm it's wet, from
+// 0.7 mm damp, below that dry. Five past days of ICON warm it up. A rough estimate: soil type,
+// shade and grass length aren't known.
+export async function fetchGround(site, signal) {
+  const p = new URLSearchParams({
+    latitude: site.lat.toFixed(4), longitude: site.lon.toFixed(4), elevation: String(Math.round(site.elev)),
+    hourly: 'precipitation,et0_fao_evapotranspiration', models: 'icon_seamless',
+    past_days: '5', forecast_days: '7', timezone: 'auto',
+  });
+  const res = await fetch('https://api.open-meteo.com/v1/forecast?' + p.toString(), { signal });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+export function groundState(json) {
+  const h = json.hourly || {}, time = h.time || [];
+  const pr = h.precipitation || [], et = h.et0_fao_evapotranspiration || [];
+  const out = {};
+  let w = 0, lastRain = null;
+  for (let i = 0; i < time.length; i++) {
+    if (pr[i] == null) continue; // past the end of the forecast
+    w = Math.min(10, Math.max(0, w * 0.99 + pr[i] - (et[i] ?? 0)));
+    if (pr[i] >= 0.2) lastRain = i;
+    if (time[i].endsWith('T10:00')) {
+      let rain48 = 0;
+      for (let k = Math.max(0, i - 47); k <= i; k++) rain48 += pr[k] ?? 0;
+      out[time[i].slice(0, 10)] = { w, state: w >= 3 ? 'wet' : w >= 0.7 ? 'damp' : 'dry', rain48, lastRainH: lastRain == null ? null : i - lastRain };
+    }
+  }
+  return out;
+}
+
 // ---------- wind field for the map's streamlines ----------
 // A 0.75° grid over Croatia (80 points). One request brings all four heights for 7 days, so
 // changing the day, hour or height costs no further requests (Open-Meteo counts every point).

@@ -10,7 +10,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 // allows a limited number of requests per day for each internet connection.
 const TTL = 60 * 60 * 1000;
 // Recently opened sites stay in memory, so going back and forth costs no new requests.
-const recent = { dt: new Map(), ens: new Map() };
+const recent = { dt: new Map(), ens: new Map(), gr: new Map() };
 function remember(map, key, val) { map.delete(key); map.set(key, val); if (map.size > 8) map.delete(map.keys().next().value); }
 const APP_URL = 'https://termika-hr.github.io/';
 
@@ -34,6 +34,7 @@ const S = {
   obs: null,       // live station data (data/obs.json)
   ens: null,       // ECMWF ensemble for the open site
   kpiHelp: null,   // which summary figure's explanation is open on the site page
+  gr: null,        // rain and evaporation around the open site, for the ground wetness
   dmodel: null,    // model shown on the site page; null = main model
   hour: null,
   bestDay: 0,
@@ -367,6 +368,35 @@ async function loadEnsemble(site, force = false) {
   }
   render();
 }
+// Rain and drying around the open site (ICON, 5 past days) for the ground wetness.
+async function loadGround(site, force = false) {
+  const key = siteKey(site);
+  if (!force && S.gr && S.gr.key === key && Date.now() - S.gr.t < 2 * TTL) return;
+  const cached = recent.gr.get(key) || store.get('gr', null);
+  if (!force && cached && cached.key === key && Date.now() - cached.t < 2 * TTL) { S.gr = cached; render(); return; }
+  try {
+    const raw = await M.fetchGround(site);
+    S.gr = { key, t: Date.now(), raw };
+    store.set('gr', S.gr);
+    remember(recent.gr, key, S.gr);
+  } catch (e) {
+    if (cached && cached.key === key) S.gr = cached;
+  }
+  render();
+}
+let grMemo = null;
+function groundFor(site, date) {
+  if (!S.gr || S.gr.key !== siteKey(site)) return null;
+  if (!grMemo || grMemo.t !== S.gr.t) grMemo = { t: S.gr.t, days: M.groundState(S.gr.raw) };
+  return grMemo.days[date] || null;
+}
+function groundKpi(g) {
+  const d = g.lastRainH == null ? null : Math.round(g.lastRainH / 24);
+  const note = g.rain48 >= 0.5 ? t().groundRain(F.mm(g.rain48)) : d == null ? t().groundNone : d <= 1 ? t().groundYesterday : t().groundLast(d);
+  const cls = g.state === 'wet' ? 'v-warn' : g.state === 'dry' ? 'v-ok' : '';
+  return `<div><dt>${'%KT%'}</dt><dd class="${cls}">${t().groundState[g.state]}<small>${note}</small></dd></div>`;
+}
+
 let ensMemo = null;
 function ensFor(site) {
   if (!S.ens || S.ens.key !== siteKey(site)) return null;
@@ -893,6 +923,7 @@ function detailView(site, di) {
   const sum = day.summary;
   const ag = agreement(day.date);
   const en = ensSummary(site, day);
+  const gr = groundFor(site, day.date);
   const agCls = ag ? (ag.go / ag.n >= 0.7 ? 'v-ok' : ag.go / ag.n >= 0.4 ? 'v-warn' : 'v-bad') : '';
   const enCls = en ? (en.p >= 0.7 ? 'v-ok' : en.p >= 0.4 ? 'v-warn' : 'v-bad') : '';
   // Each label opens a short explanation of that figure under the grid.
@@ -903,6 +934,7 @@ function detailView(site, di) {
     <div><dt>${kt('cbase', t().cbase)}</dt><dd class="num">${sum.base ? `${m50(sum.base)} m` : `–<small>${sum.topAgl >= 150 ? t().blue : t().noCu}</small>`}</dd></div>
     <div><dt>${kt('wstar', t().wstar)}</dt><dd class="num">${sum.wstar > 0.2 ? `${dec1(sum.wstar)} m/s` : '–'}<small>${t().est}</small></dd></div>
     ${ag ? `<div><dt>${kt('agree', t().agree)}</dt><dd class="num ${agCls}">${ag.go}/${ag.n}<small>${t().agreeText(ag.go, ag.n)}</small></dd></div>` : ''}
+    ${gr ? groundKpi(gr).replace('%KT%', kt('ground', t().groundKpi)) : ''}
     ${en ? `<div><dt>${kt('ens', t().ens)}</dt><dd class="num ${enCls}">${Math.round(en.p * 100)} %<small>${en.text} · ${t().ensSrc}</small></dd></div>` : ''}
   </dl>${S.kpiHelp && t().kpiHelp[S.kpiHelp] ? `<p class="kpi-help" id="kpi-help">${t().kpiHelp[S.kpiHelp]}</p>` : ''}`;
   const reasonLine = sum.state === 'no' && sum.mainReason ? `<span>${t().mainReason}: ${t().short[sum.mainReason]}</span>` : '';
@@ -1271,7 +1303,7 @@ async function handleClick(b) {
     loadAladin();
     loadObs();
     const s = currentSite();
-    if (s) { loadDetail(s, true); loadEnsemble(s, true); }
+    if (s) { loadDetail(s, true); loadEnsemble(s, true); loadGround(s, true); }
   } else if (act === 'settings') openSettings();
   else if (act === 'install' && installEvt) {
     const evt = installEvt;
@@ -1423,7 +1455,7 @@ function onRoute() {
   }
   render();
   const site = r.view === 'site' && currentSite(r);
-  if (site) { loadDetail(site); loadEnsemble(site); }
+  if (site) { loadDetail(site); loadEnsemble(site); loadGround(site); }
 }
 
 window.addEventListener('hashchange', onRoute);
