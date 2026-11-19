@@ -449,8 +449,8 @@ function header(r) {
     <nav class="views" aria-label="${t().viewList} / ${t().viewMap}">${tab('#', t().viewList, r.view === 'list')}${tab(r.view === 'site' && currentSite(r) ? mapHrefFor(currentSite(r), r.day) : '#view=map', t().viewMap, r.view === 'map')}</nav>
     <div class="status">
       ${S.ov ? `<span>${t().updated} <b>${timeStr(S.ov.t)}</b></span>` : ''}
-      <label class="status-pick"><span>${t().model}</span><span class="pick"><select name="model" aria-label="${t().model}">${Object.entries(M.MODELS).filter(([, m]) => !m.local).map(([k, m]) => `<option value="${k}"${k === S.model ? ' selected' : ''}>${m.label}</option>`).join('')}</select></span></label>
-      <span><b>${t().levels[S.profile]}</b></span>
+      <label class="status-pick"><span>${t().model}</span><span class="pick"><select name="model" aria-label="${t().modelPick}">${Object.entries(M.MODELS).filter(([, m]) => !m.local).map(([k, m]) => `<option value="${k}"${k === S.model ? ' selected' : ''}>${m.label}</option>`).join('')}</select></span></label>
+      <span class="pick"><select name="level" aria-label="${t().levelPick}">${Object.keys(M.PROFILES).map((k) => `<option value="${k}"${k === S.profile ? ' selected' : ''}>${t().levels[k]}</option>`).join('')}</select></span>
       ${S.ovStatus === 'loading' ? `<span>${t().loading}</span>` : ''}
     </div>
   </div>
