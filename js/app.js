@@ -3,7 +3,7 @@ import { SITES, REGIONS } from './sites.js';
 import * as M from './meteo.js';
 import { STR, dirLabel, degLabel } from './i18n.js';
 import { showMap, WIND_COLORS, AIR_COLORS } from './map.js';
-import { fetchClubStations } from './clubstations.js';
+import { fetchClubStations, CLUB_STATIONS } from './clubstations.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -898,19 +898,45 @@ function ensSummary(site, day) {
   return best ? { p: best.p, text: t().ensMax(pad2(best.hour)) } : null;
 }
 
+// Club stations within 5 km of the launch that don't report: name them, so a pilot knows a
+// station exists but is down, instead of it silently missing from the list.
+function downStations(site) {
+  if (!S.club) return []; // the club data didn't load, so nothing is known
+  const now = Date.now();
+  return CLUB_STATIONS.map((c) => ({ c, d: distKm(site, c) })).filter((x) => x.d <= 5).sort((a, b) => a.d - b.d)
+    .map(({ c, d }) => {
+      const r = S.club.find((s) => s.id === 'club:' + c.id);
+      if (r && (now - Date.parse(r.time)) / 60000 < 360) return null; // reporting: it's in the list
+      return { c, d, last: r ? Date.parse(r.time) : null };
+    })
+    .filter(Boolean).slice(0, 2);
+}
+function lastSeen(ms) {
+  if (Date.now() - ms > 30 * 864e5) return new Date(ms).toLocaleDateString(locale(), { day: 'numeric', month: 'numeric', year: 'numeric' });
+  return timeStr(ms);
+}
+function downNotes(site) {
+  return downStations(site).map(({ c, d, last }) => {
+    const where = d < 1 ? t().stnHere : t().stnKm(Math.round(d));
+    const who = [c.org, where].filter(Boolean).join(', ');
+    return `<p class="hint v-warn">${last ? t().stnDown(esc(c.name), esc(who), lastSeen(last)) : t().stnSilent(esc(c.name), esc(who))}</p>`;
+  }).join('');
+}
+
 function liveSection(site) {
   const st = freshStations().map((s) => ({ ...s, d: distKm(site, s) })).filter((s) => s.d <= 70).sort((a, b) => a.d - b.d);
   let list = st.slice(0, 4);
   const mountain = st.find((s) => (s.elev || 0) >= 500);
   if (mountain && !list.includes(mountain)) list = [...list.slice(0, 3), mountain];
   if (!S.obs && !S.club) return '';
+  const down = downNotes(site);
   const rows = list.map((s) => `<li>
       <span class="live-name"><b>${esc(s.name)}</b><small>${s.elev ? `${Math.round(s.elev)} m · ` : ''}${Math.round(s.d)} km · ${srcLabel(s)}</small></span>
       <span class="live-wind">${stationWind(s)}</span>
       <span class="dim num">${s.t != null ? `${Math.round(s.t)} °C` : ''}</span>
       <span class="${s.age > OBS_LATE ? 'v-warn' : 'dim'}">${t().ago(Math.round(s.age))}</span>
     </li>`).join('');
-  return `<section class="card"><h2>${t().live}</h2><p class="hint">${t().liveHint}</p>${obsLateNote()}${rows ? `<ul class="live">${rows}</ul>` : `<p class="hint" style="margin:0">${t().liveNone}</p>`}</section>`;
+  return `<section class="card"><h2>${t().live}</h2><p class="hint">${t().liveHint}</p>${obsLateNote()}${down}${rows ? `<ul class="live">${rows}</ul>` : `<p class="hint" style="margin:0">${t().liveNone}</p>`}</section>`;
 }
 
 function detailView(site, di) {
