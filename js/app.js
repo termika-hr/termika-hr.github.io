@@ -449,7 +449,7 @@ function header(r) {
     <nav class="views" aria-label="${t().viewList} / ${t().viewMap}">${tab('#', t().viewList, r.view === 'list')}${tab(r.view === 'site' && currentSite(r) ? mapHrefFor(currentSite(r), r.day) : '#view=map', t().viewMap, r.view === 'map')}</nav>
     <div class="status">
       ${S.ov ? `<span>${t().updated} <b>${timeStr(S.ov.t)}</b></span>` : ''}
-      <span>${t().model} <b>${M.MODELS[S.model].label}</b></span>
+      <label class="status-pick"><span>${t().model}</span><span class="pick"><select name="model" aria-label="${t().model}">${Object.entries(M.MODELS).filter(([, m]) => !m.local).map(([k, m]) => `<option value="${k}"${k === S.model ? ' selected' : ''}>${m.label}</option>`).join('')}</select></span></label>
       <span><b>${t().levels[S.profile]}</b></span>
       ${S.ovStatus === 'loading' ? `<span>${t().loading}</span>` : ''}
     </div>
@@ -1324,7 +1324,7 @@ function reanalyze() {
 function setPref(k, v) {
   S[k] = v; store.set(k, v);
   if (k === 'profile') reanalyze();
-  if (k === 'model') loadOverview();
+  if (k === 'model') { S.dmodel = null; loadOverview(); }
   render();
   if ($('#dlg').open && !form && !S.shareOpen) $('#dlg').innerHTML = settingsHtml();
 }
