@@ -33,6 +33,7 @@ const S = {
   al: null,        // ALADIN-SI extract (data/aladin-si.json)
   obs: null,       // live station data (data/obs.json)
   ens: null,       // ECMWF ensemble for the open site
+  kpiHelp: null,   // which summary figure's explanation is open on the site page
   dmodel: null,    // model shown on the site page; null = main model
   hour: null,
   bestDay: 0,
@@ -894,14 +895,16 @@ function detailView(site, di) {
   const en = ensSummary(site, day);
   const agCls = ag ? (ag.go / ag.n >= 0.7 ? 'v-ok' : ag.go / ag.n >= 0.4 ? 'v-warn' : 'v-bad') : '';
   const enCls = en ? (en.p >= 0.7 ? 'v-ok' : en.p >= 0.4 ? 'v-warn' : 'v-bad') : '';
+  // Each label opens a short explanation of that figure under the grid.
+  const kt = (k, label) => `<button type="button" class="kpi-q" data-act="kpi-help" data-k="${k}" aria-expanded="${S.kpiHelp === k}" aria-controls="kpi-help">${label}</button>`;
   const kpis = `<dl class="kpis">
-    <div><dt>${t().window}</dt><dd class="num">${sum.window ? windowText(sum.window) : t().noWindow}${sum.rating ? `<small>${stars(sum.rating)}</small>` : ''}</dd></div>
-    <div><dt>${t().ttop}</dt><dd class="num">${sum.topAgl >= 150 ? `${m50(sum.top)} m<small>${t().aboveLaunch(m50(sum.topAgl))}</small>` : `–<small>${t().noThermals}</small>`}</dd></div>
-    <div><dt>${t().cbase}</dt><dd class="num">${sum.base ? `${m50(sum.base)} m` : `–<small>${sum.topAgl >= 150 ? t().blue : t().noCu}</small>`}</dd></div>
-    <div><dt>${t().wstar}</dt><dd class="num">${sum.wstar > 0.2 ? `${dec1(sum.wstar)} m/s` : '–'}<small>${t().est}</small></dd></div>
-    ${ag ? `<div><dt>${t().agree}</dt><dd class="num ${agCls}">${ag.go}/${ag.n}<small>${t().agreeText(ag.go, ag.n)}</small></dd></div>` : ''}
-    ${en ? `<div><dt>${t().ens}</dt><dd class="num ${enCls}">${Math.round(en.p * 100)} %<small>${en.text} · ${t().ensSrc}</small></dd></div>` : ''}
-  </dl>`;
+    <div><dt>${kt('window', t().window)}</dt><dd class="num">${sum.window ? windowText(sum.window) : t().noWindow}${sum.rating ? `<small>${stars(sum.rating)}</small>` : ''}</dd></div>
+    <div><dt>${kt('ttop', t().ttop)}</dt><dd class="num">${sum.topAgl >= 150 ? `${m50(sum.top)} m<small>${t().aboveLaunch(m50(sum.topAgl))}</small>` : `–<small>${t().noThermals}</small>`}</dd></div>
+    <div><dt>${kt('cbase', t().cbase)}</dt><dd class="num">${sum.base ? `${m50(sum.base)} m` : `–<small>${sum.topAgl >= 150 ? t().blue : t().noCu}</small>`}</dd></div>
+    <div><dt>${kt('wstar', t().wstar)}</dt><dd class="num">${sum.wstar > 0.2 ? `${dec1(sum.wstar)} m/s` : '–'}<small>${t().est}</small></dd></div>
+    ${ag ? `<div><dt>${kt('agree', t().agree)}</dt><dd class="num ${agCls}">${ag.go}/${ag.n}<small>${t().agreeText(ag.go, ag.n)}</small></dd></div>` : ''}
+    ${en ? `<div><dt>${kt('ens', t().ens)}</dt><dd class="num ${enCls}">${Math.round(en.p * 100)} %<small>${en.text} · ${t().ensSrc}</small></dd></div>` : ''}
+  </dl>${S.kpiHelp && t().kpiHelp[S.kpiHelp] ? `<p class="kpi-help" id="kpi-help">${t().kpiHelp[S.kpiHelp]}</p>` : ''}`;
   const reasonLine = sum.state === 'no' && sum.mainReason ? `<span>${t().mainReason}: ${t().short[sum.mainReason]}</span>` : '';
   const sun = baseDay.sunrise && baseDay.sunset ? `<span class="dim">${t().sun} ${baseDay.sunrise.slice(11, 16)}–${baseDay.sunset.slice(11, 16)}</span>` : '';
   const summary = `<section class="summary st-${sum.state}"><div class="verdict"><span class="pill">${t().state[sum.state]}</span><span>${dayParts(day.date).full}</span>${reasonLine}${sun}</div>${kpis}</section>`;
@@ -1264,7 +1267,8 @@ async function handleClick(b) {
     evt.prompt();
     try { await evt.userChoice; } catch (err) { /* dismissed */ }
     render();
-  } else if (act === 'air-all') { S.mapOpts.airAll = !S.mapOpts.airAll; store.set('mapOpts', S.mapOpts); render(); }
+  } else if (act === 'kpi-help') { S.kpiHelp = S.kpiHelp === b.dataset.k ? null : b.dataset.k; render(); }
+  else if (act === 'air-all') { S.mapOpts.airAll = !S.mapOpts.airAll; store.set('mapOpts', S.mapOpts); render(); }
   else if (act === 'wind-anim') { S.mapOpts.windAnim = !windAnimOn(); store.set('mapOpts', S.mapOpts); render(); }
   else if (act === 'limit-hide') { S.limitHidden = true; render(); }
   else if (act === 'install-how') openInstallHelp();
