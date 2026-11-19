@@ -17,7 +17,7 @@ Prognoza za paragliding u Hrvatskoj · Paragliding forecast for Croatia (HR / EN
   - **Reliability:**
     - model agreement (how many of 8 models say flyable)
     - ECMWF ensemble probability (51 members) for each hour
-  - **Live conditions:** the nearest DHMZ stations and airport METARs.
+  - **Live conditions:** the nearest DHMZ stations, airport METARs and OpenWindMap (Pioupiou) launch stations.
   - **Hourly table:** launch wind, gusts, the strongest wind aloft, 850/700 hPa winds, cloud, rain, CAPE.
   - **Conditions by altitude:** wind at each height through the day, with the thermal layer and cloud marked.
   - **Sounding and stability:** a sounding chart plus stability, inversions and freezing level.
@@ -32,7 +32,7 @@ Prognoza za paragliding u Hrvatskoj · Paragliding forecast for Croatia (HR / EN
 It is a static web app (PWA), with no build step and no server.
 - **Open-Meteo models and the ensemble** are fetched by the browser directly.
 - **Data browsers can't fetch themselves:** a GitHub Actions workflow (`.github/workflows/pages.yml`) runs every 30 minutes and redeploys the site. It runs:
-  - `tools/obs.py`: live stations from DHMZ and METAR → `data/obs.json`
+  - `tools/obs.py`: live stations from DHMZ, METAR and OpenWindMap → `data/obs.json`
   - `tools/aladin_si.py`: ARSO ALADIN-SI GRIB, launch sites only, fetched only when a new run is out → `data/aladin-si.json`
 - **DHMZ's ALADIN-HR** has no open data (GRIB only for a fee), so each site page links to its maps on meteo.hr.
 
@@ -62,7 +62,7 @@ Open http://localhost:8765.
   - Forecast models: ČHMÚ ALADIN, ItaliaMeteo ICON-2I, DWD ICON, KNMI HARMONIE-AROME, Météo-France ARPEGE, UK Met Office, ECMWF IFS 0.25°, NOAA GFS.
   - Ensemble: ECMWF ENS.
 - **ALADIN-SI:** vir: ARSO (Agencija Republike Slovenije za okolje), [meteo.arso.gov.si](https://meteo.arso.gov.si/).
-- **Live stations:** izvor: DHMZ ([meteo.hr](https://meteo.hr/)); METAR via NOAA Aviation Weather Center.
+- **Live stations:** izvor: DHMZ ([meteo.hr](https://meteo.hr/)); METAR via NOAA Aviation Weather Center; Wind data (c) contributors of the OpenWindMap wind network <https://www.openwindmap.org> (Community License).
 - **Thermal maps:** [thermal.kk7.ch](https://thermal.kk7.ch/) (CC BY-NC-SA 4.0, non-commercial use).
 - **Base maps:** OpenTopoMap (CC-BY-SA), © OpenStreetMap contributors.
 - **Launches:**

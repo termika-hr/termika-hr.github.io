@@ -721,6 +721,11 @@ function obsLateNote() {
   return (Date.now() - newest) / 60000 > OBS_LATE ? `<p class="hint v-warn">${t().obsOld(timeStr(newest))}</p>` : '';
 }
 
+// OpenWindMap asks for a visible credit with a link wherever its data is shown.
+function srcLabel(s) {
+  return s.src === 'OpenWindMap' ? '<a href="https://www.openwindmap.org" target="_blank" rel="noopener">OpenWindMap</a>' : s.src;
+}
+
 function stationWind(s) {
   if (s.ws < 1) return `<span class="dim">${t().calm}</span>`;
   return `<span class="wind">${arrow(s.wd)}${wNum(s.ws)} ${unitLabel()}</span>${s.wg ? ` <span class="dim">${t().gustShort} ${wNum(s.wg)}</span>` : ''}`;
@@ -756,7 +761,7 @@ function mapData() {
   const stations = S.mapOpts.stations ? freshStations().map((s) => ({
     lat: s.lat, lon: s.lon, name: s.name,
     icon: `<div class="stn${s.age > OBS_LATE ? ' old' : ''}">${s.ws >= 1 ? arrow(s.wd) : ''}<b>${s.ws < 1 ? '0' : wNum(s.ws)}</b></div>`,
-    popup: `<div class="pop"><b>${esc(s.name)}</b><span class="dim">${s.src}${s.elev ? ` · ${Math.round(s.elev)} m` : ''} · ${t().ago(Math.round(s.age))}</span><span>${stationWind(s)}${s.t != null ? ` · ${Math.round(s.t)} °C` : ''}</span></div>`,
+    popup: `<div class="pop"><b>${esc(s.name)}</b><span class="dim">${srcLabel(s)}${s.elev ? ` · ${Math.round(s.elev)} m` : ''} · ${t().ago(Math.round(s.age))}</span><span>${stationWind(s)}${s.t != null ? ` · ${Math.round(s.t)} °C` : ''}</span></div>`,
   })) : [];
   const ref = first[di];
   return {
@@ -856,7 +861,7 @@ function liveSection(site) {
   if (mountain && !list.includes(mountain)) list = [...list.slice(0, 3), mountain];
   if (!S.obs) return '';
   const rows = list.map((s) => `<li>
-      <span class="live-name"><b>${esc(s.name)}</b><small>${s.elev ? `${Math.round(s.elev)} m · ` : ''}${Math.round(s.d)} km · ${s.src}</small></span>
+      <span class="live-name"><b>${esc(s.name)}</b><small>${s.elev ? `${Math.round(s.elev)} m · ` : ''}${Math.round(s.d)} km · ${srcLabel(s)}</small></span>
       <span class="live-wind">${stationWind(s)}</span>
       <span class="dim num">${s.t != null ? `${Math.round(s.t)} °C` : ''}</span>
       <span class="${s.age > OBS_LATE ? 'v-warn' : 'dim'}">${t().ago(Math.round(s.age))}</span>
