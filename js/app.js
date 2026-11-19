@@ -3,6 +3,7 @@ import { SITES, REGIONS } from './sites.js';
 import * as M from './meteo.js';
 import { STR, dirLabel, degLabel } from './i18n.js';
 import { showMap, WIND_COLORS, AIR_COLORS } from './map.js';
+import { fetchClubStations } from './clubstations.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -32,6 +33,7 @@ const S = {
   dt: null, dtStatus: 'idle',
   al: null,        // ALADIN-SI extract (data/aladin-si.json)
   obs: null,       // live station data (data/obs.json)
+  club: null,      // club stations on launches (flumen.club), read live
   ens: null,       // ECMWF ensemble for the open site
   kpiHelp: null,   // which summary figure's explanation is open on the site page
   gr: null,        // rain and evaporation around the open site, for the ground wetness
@@ -340,6 +342,15 @@ function airspaceCard(site) {
   if (!S.airspace) { loadAirspace(); return ''; }
   if (!S.airspace.features) return '';
   return `<section class="card"><h2>${t().airAbove}</h2>${airList(site.lat, site.lon, false)}<p class="hint" style="margin:10px 0 0">${t().airNote}</p></section>`;
+}
+
+// Club stations on launches (flumen.club network), read live from the browser.
+async function loadClub() {
+  try {
+    S.club = await fetchClubStations();
+    S.clubAt = Date.now();
+    render();
+  } catch (e) { S.clubAt = Date.now(); /* try again later; keep what we have */ }
 }
 
 async function loadObs() {
@@ -737,23 +748,25 @@ function windLegend() {
     <p class="hint">${t().mapWindNote}${src ? ` ${t().windSrc}: ${src}.` : ''}</p>`;
 }
 
+function allStations() { return [...(S.obs?.stations || []), ...(S.club || [])]; }
 function freshStations() {
-  if (!S.obs) return [];
   const now = Date.now();
-  return S.obs.stations
+  return allStations()
     .map((s) => ({ ...s, age: (now - Date.parse(s.time)) / 60000 }))
     .filter((s) => s.ws != null && s.age < 360 && Number.isFinite(s.lat));
 }
 // Station data older than 2 hours is still shown, but marked as late.
 const OBS_LATE = 120;
 function obsLateNote() {
-  if (!S.obs || !S.obs.stations.length) return '';
-  const newest = Math.max(...S.obs.stations.map((s) => Date.parse(s.time)));
+  const all = allStations();
+  if (!all.length) return '';
+  const newest = Math.max(...all.map((s) => Date.parse(s.time)));
   return (Date.now() - newest) / 60000 > OBS_LATE ? `<p class="hint v-warn">${t().obsOld(timeStr(newest))}</p>` : '';
 }
 
 // OpenWindMap asks for a visible credit with a link wherever its data is shown.
 function srcLabel(s) {
+  if (s.src === 'club') return `<a href="${s.url}" target="_blank" rel="noopener">${esc(s.org || 'flumen.club')}</a>`;
   return s.src === 'OpenWindMap' ? '<a href="https://www.openwindmap.org" target="_blank" rel="noopener">OpenWindMap</a>' : s.src;
 }
 
@@ -890,7 +903,7 @@ function liveSection(site) {
   let list = st.slice(0, 4);
   const mountain = st.find((s) => (s.elev || 0) >= 500);
   if (mountain && !list.includes(mountain)) list = [...list.slice(0, 3), mountain];
-  if (!S.obs) return '';
+  if (!S.obs && !S.club) return '';
   const rows = list.map((s) => `<li>
       <span class="live-name"><b>${esc(s.name)}</b><small>${s.elev ? `${Math.round(s.elev)} m · ` : ''}${Math.round(s.d)} km · ${srcLabel(s)}</small></span>
       <span class="live-wind">${stationWind(s)}</span>
@@ -1301,7 +1314,7 @@ async function handleClick(b) {
     S.wind = null;
     loadOverview(true);
     loadAladin();
-    loadObs();
+    loadObs(); loadClub();
     const s = currentSite();
     if (s) { loadDetail(s, true); loadEnsemble(s, true); loadGround(s, true); }
   } else if (act === 'settings') openSettings();
@@ -1463,10 +1476,12 @@ onRoute();
 loadOverview();
 loadAladin();
 loadObs();
+loadClub();
 setInterval(() => {
   if (document.visibilityState !== 'visible') return;
   if (S.ov && Date.now() - S.ov.t > TTL) loadOverview();
   if (!S.obsAt || Date.now() - S.obsAt > 10 * 60 * 1000) loadObs();
+  if (!S.clubAt || Date.now() - S.clubAt > 5 * 60 * 1000) loadClub();
 }, 60 * 1000);
 
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; render(); });

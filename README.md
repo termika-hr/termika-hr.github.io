@@ -18,7 +18,7 @@ Prognoza za paragliding u Hrvatskoj · Paragliding forecast for Croatia (HR / EN
     - model agreement (how many of 8 models say flyable)
     - ECMWF ensemble probability (51 members) for each hour
   - **Ground wetness:** wet, damp or dry at 10:00 from a small rain-minus-evaporation bucket (ICON, 5 past days).
-  - **Live conditions:** the nearest DHMZ stations, airport METARs, Slovenian ARSO automatic stations and OpenWindMap (Pioupiou) launch stations.
+  - **Live conditions:** club stations on the launches (flumen.club network by PJK Flumen, used with the clubs' permission, read live from the browser via `js/clubstations.js`), the nearest DHMZ stations, airport METARs, Slovenian ARSO automatic stations and OpenWindMap (Pioupiou) launch stations.
   - **Hourly table:** launch wind, gusts, the strongest wind aloft, 850/700 hPa winds, cloud, rain, CAPE.
   - **Conditions by altitude:** wind at each height through the day, with the thermal layer and cloud marked.
   - **Sounding and stability:** a sounding chart plus stability, inversions and freezing level.
