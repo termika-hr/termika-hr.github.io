@@ -17,7 +17,8 @@ const WITH_CLUB = (base, who) => ({ hr: `${base.hr ?? base}; smjerovi: klupska m
 // Hruševec and Kupljenovo istok: direction from the site name, confirmed by the terrain.
 // Kupljenovo istok and sjever, Hruševec jug and sjever, Radoboj, Gornja Pušća: directions from the Nubigena
 // instructor (8-point, so each counts as a 45° sector), passed on by the user, 2026-11-20.
-// Radoboj: launch position from the user, 2026-11-20 (height from the terrain model; the slope faces WSW).
+// Radoboj and Gornja Pušća: launch positions from the user, 2026-11-20 (heights from the terrain model;
+// the slopes face WSW and SSW).
 // Borje: directions from the club station there (flumen.club), 2026-11-20.
 const NUBI_INSTR = { hr: 'Nubigena (koordinate; smjerovi od instruktora); visina iz modela terena', en: 'Nubigena (coordinates; directions from the instructor); height from a terrain model' };
 
@@ -40,7 +41,7 @@ export const SITES = [
   },
   {
     id: 'gornja-pusca', name: 'Gornja Pušća', region: 'north', school: true,
-    lat: 45.9236, lon: 15.7687, elev: 212, dirs: ['S'], src: NUBI_INSTR,
+    lat: 45.9235, lon: 15.7669, elev: 221, dirs: ['S'], src: NUBI_INSTR,
   },
   {
     id: 'radoboj', name: 'Radoboj', region: 'north', school: true,
