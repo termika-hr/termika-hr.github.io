@@ -150,12 +150,17 @@ def main():
         latest = latest_run()
         if args.skip_if_same and Path(args.out).exists() and (Path(args.wind_dir) / 'aladin-850.json').exists():
             try:
-                have = json.loads(Path(args.out).read_text(encoding='utf-8')).get('run', '')
+                old = json.loads(Path(args.out).read_text(encoding='utf-8'))
             except ValueError:
-                have = ''
-            if have == dt.datetime.strptime(latest, '%Y%m%d-%H%M').strftime('%Y-%m-%dT%H:%MZ'):
+                old = {}
+            have = old.get('run', '')
+            # Sites added to js/sites.js since the last file (inside the model area or not) force a new run.
+            known = set(old.get('sites', {})) | set(old.get('outside', []))
+            new = [s['id'] for s in read_sites() if s['id'] not in known]
+            if have == dt.datetime.strptime(latest, '%Y%m%d-%H%M').strftime('%Y-%m-%dT%H:%MZ') and not new:
                 print('ALADIN-SI run', have, 'is already current; skipping download', file=sys.stderr)
                 return
+            if new: print('new sites since the last file:', ', '.join(new), file=sys.stderr)
         url = f'{BASE}nwp_{latest}.zip'
         print('downloading', url, file=sys.stderr)
         blob = urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': UA}), timeout=300).read()
@@ -166,6 +171,7 @@ def main():
     base = dt.datetime.strptime(run, '%Y%m%d%H').replace(tzinfo=dt.timezone.utc)
 
     sites = read_sites()
+    all_ids = [s['id'] for s in sites]
     grid = None
     rows = {}  # site id -> list of per-step dicts
     wfield = {l: {'times': [], 'u': [], 'v': []} for l in WIND_LEVELS}
@@ -207,6 +213,7 @@ def main():
     out = {
         'model': 'ALADIN-SI', 'source': 'ARSO, meteo.arso.gov.si', 'run': base.strftime('%Y-%m-%dT%H:%MZ'),
         'generated': dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%MZ'), 'sites': {},
+        'outside': [i for i in all_ids if i not in {s['id'] for s in sites}],  # sites beyond the model area
     }
     r1 = lambda x: None if x is None else round(x, 1)
     for s in sites:
