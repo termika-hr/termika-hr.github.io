@@ -617,14 +617,29 @@ function mapDays() {
   });
 }
 
+// The hour "now" stands for: today's current hour (from :30 the next one), kept within the
+// daylight hours that have a forecast, so at night it's the nearest one.
+function nowHour() {
+  const day = mapDays()[0];
+  const hrs = day ? day.hours.filter((h) => h.daylight).map((h) => h.hour) : [];
+  const d = new Date(), cur = d.getHours() + (d.getMinutes() >= 30 ? 1 : 0);
+  return hrs.length ? hrs.reduce((best, h) => (Math.abs(h - cur) < Math.abs(best - cur) ? h : best), hrs[0]) : cur;
+}
+// Day and hour the map shows.
+function mapSel() {
+  if (S.mapHour === 'now') return { di: 0, hour: nowHour() };
+  return { di: Math.min(S.mapDay, mapDays().length - 1), hour: S.mapHour };
+}
+
 function mapView() {
   const first = mapDays();
-  const di = Math.min(S.mapDay, first.length - 1);
+  const di = mapSel().di;
   const day = first[di];
   const chips = first.map((d, i) => { const p = dayParts(d.date); return `<button type="button" class="chip${p.weekend ? ' wknd' : ''}" data-mapday="${i}" aria-pressed="${i === di}">${i === 0 ? t().today : p.wd} <b>${p.dd}</b></button>`; }).join('');
   const hours = day ? day.hours.filter((h) => h.daylight).map((h) => h.hour) : [];
   const hourSel = `<label class="sel-wrap"><span class="sr">${S.lang === 'hr' ? 'Sat' : 'Hour'}</span><select id="map-hour" class="input">
       <option value="day"${S.mapHour === 'day' ? ' selected' : ''}>${t().mapAllDay}</option>
+      <option value="now"${S.mapHour === 'now' ? ' selected' : ''}>${t().mapNow(pad2(nowHour()))}</option>
       ${hours.map((h) => `<option value="${h}"${S.mapHour === h ? ' selected' : ''}>${pad2(h)}:00</option>`).join('')}
     </select></label>`;
   const o = S.mapOpts;
@@ -793,8 +808,7 @@ function pinWind(h, site) {
 
 function mapData() {
   const first = mapDays();
-  const di = Math.min(S.mapDay, first.length - 1);
-  const hour = S.mapHour;
+  const { di, hour } = mapSel();
   const sites = allSites().map((s) => {
     const d = S.ov?.days[s.id]?.[di] || { hours: [], summary: { state: 'nodata', topAgl: 0, rating: 0 } };
     const h = hour === 'day' ? null : d.hours.find((x) => x.hour === hour);
@@ -1452,7 +1466,11 @@ document.addEventListener('change', (e) => {
     if (box) box.hidden = el.value !== 'custom';
   }
   if (el.name === 'model') setPref('model', el.value);
-  if (el.id === 'map-hour') { S.mapHour = el.value === 'day' ? 'day' : +el.value; render(); }
+  if (el.id === 'map-hour') {
+    S.mapHour = el.value === 'day' || el.value === 'now' ? el.value : +el.value;
+    if (el.value === 'now') S.mapDay = 0;
+    render();
+  }
   if (el.id === 'map-wlevel') { S.mapOpts.windLevel = el.value; store.set('mapOpts', S.mapOpts); render(); }
   if (el.id && el.id.startsWith('lim-')) {
     // Inputs are in the chosen unit; limits are kept in km/h. Only the edited field is
