@@ -130,6 +130,34 @@ export function dirClass(wd, site) {
   return off > 45 ? 2 : off > 22.5 ? 1 : 0;
 }
 
+// The launch-wind direction problem for one hour, or null: [severity, reason key].
+// Under 2 km/h it is calm and the direction doesn't count. In light wind (2-5 km/h) a crosswind is
+// a caution and a tailwind rules the hour out from 3 km/h; from 5 km/h the full rules apply
+// (a slightly off-angle wind is a caution only from 5 km/h).
+export function dirIssue(ws, wd, site) {
+  if (ws == null || ws < 2 || !site.dirs || !site.dirs.length) return null;
+  const dc = dirClass(wd, site);
+  if (dc === 3) return ws >= 3 ? [2, 'tail'] : [1, 'tailLight'];
+  if (dc === 2) return ws >= 5 ? [2, 'cross'] : [1, 'crossLight'];
+  if (dc === 1) return ws >= 5 ? [1, 'crossEdge'] : null; // slightly off-angle light wind is no problem
+  return null;
+}
+
+// Sun azimuth (degrees from north, clockwise) at a moment in UTC milliseconds; NOAA approximation.
+export function sunAzimuth(lat, lon, ms) {
+  const d = new Date(ms);
+  const doy = (Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - Date.UTC(d.getUTCFullYear(), 0, 0)) / 864e5;
+  const hr = d.getUTCHours() + d.getUTCMinutes() / 60;
+  const g = ((2 * Math.PI) / 365) * (doy - 1 + (hr - 12) / 24);
+  const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g)
+    + 0.000907 * Math.sin(2 * g) - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
+  const eqt = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
+  const ha = (((hr * 60 + eqt + 4 * lon) / 4 - 180) * Math.PI) / 180;
+  const la = (lat * Math.PI) / 180;
+  const az = Math.atan2(Math.sin(ha), Math.cos(ha) * Math.sin(la) - Math.tan(decl) * Math.cos(la));
+  return ((az * 180) / Math.PI + 180 + 360) % 360;
+}
+
 function interp(points, key, z) {
   if (!points.length) return null;
   if (z <= points[0].z) return points[0][key];
@@ -222,7 +250,7 @@ export function parseLocation(loc, model) {
     }
     levels.sort((a, b) => a.z - b.z);
     const rec = {
-      time,
+      time, utc: loc.utc_offset_seconds != null ? Date.parse(time + 'Z') - loc.utc_offset_seconds * 1000 : Date.parse(time),
       T: cols.temperature_2m[i], Td: cols.dew_point_2m[i],
       ws: cols.wind_speed_10m[i], wd: cols.wind_direction_10m[i], gust: cols.wind_gusts_10m[i],
       cape: cols.cape[i], li: cols.lifted_index[i], sw: cols.shortwave_radiation[i],
@@ -356,16 +384,18 @@ export function scoreHour(h, a, site, prof, daylight) {
     if (sp > prof.spread) add(2, 'gusty', sp);
     else if (sp > prof.spread * 0.7) add(1, 'gustyish', sp);
   }
-  if (h.ws >= 5 && site.dirs && site.dirs.length) {
-    const dc = dirClass(h.wd, site);
-    if (dc === 3) add(2, 'tail');
-    else if (dc === 2) add(2, 'cross');
-    else if (dc === 1) add(1, 'crossEdge');
-  }
+  const di = dirIssue(h.ws, h.wd, site);
+  if (di) add(di[0], di[1]);
   if (a.lee && site.dirs && site.dirs.length) {
     const off = offAngle(a.lee.wd, site.dirs);
     if (off > 112.5 && a.lee.ws >= 15) add(2, 'lee', a.lee.ws);
-    else if (off >= 90 && a.lee.ws >= 10) add(1, 'leeRisk', a.lee.ws);
+    else if (off >= 90 && a.lee.ws >= 6) add(1, 'leeRisk', a.lee.ws);
+  }
+  // Calm and sunny: the sunlit slope draws air up it, a slope facing away from the sun lets it drain
+  // down, i.e. from behind on that launch. So both sides of a hill can't be good at the same time.
+  if ((h.ws ?? 0) < 2 && (h.sw ?? 0) >= 150 && h.utc && site.dirs && site.dirs.length) {
+    const az = sunAzimuth(site.lat, site.lon, h.utc);
+    if (offAngle(az, site.dirs) > 110) add(1, 'shade');
   }
   if (a.airMax.ws > prof.air) add(2, 'air', a.airMax.ws);
   else if (a.airMax.ws > prof.air * 0.8) add(1, 'airHigh', a.airMax.ws);
@@ -519,7 +549,7 @@ export function ensembleProb(json, site, prof) {
       if (pass && pr != null) pass = pr < 0.5;
       // 850 hPa (about 1500 m) is in the flying layer only when the launch is high enough.
       if (pass && w850 != null && site.elev >= 400) pass = w850 <= prof.air;
-      if (pass && ws >= 5 && wd != null && site.dirs && site.dirs.length) pass = dirClass(wd, site) <= 1;
+      if (pass && wd != null) { const di = dirIssue(ws, wd, site); pass = !di || di[0] < 2; }
       if (pass) ok++;
     }
     out[time] = n ? ok / n : null;

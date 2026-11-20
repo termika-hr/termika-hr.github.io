@@ -811,7 +811,7 @@ function stationWind(s) {
 function pinWind(h, site) {
   const p = prof();
   let c = h.ws > p.wind ? 'v-bad' : h.ws > p.wind * 0.8 ? 'v-warn' : 'v-ok';
-  if (h.ws >= 5 && site.dirs?.length) { const dc = M.dirClass(h.wd, site); if (dc >= 2) c = 'v-bad'; else if (dc === 1 && c === 'v-ok') c = 'v-warn'; }
+  const di = M.dirIssue(h.ws, h.wd, site); if (di) { if (di[0] === 2) c = 'v-bad'; else if (c === 'v-ok') c = 'v-warn'; }
   return `<span class="pin-wind ${c}">${h.ws >= 1 ? arrow(h.wd) : ''}${h.ws < 1 ? '0' : wNum(h.ws)}</span>`;
 }
 
@@ -1025,7 +1025,7 @@ function hourlyTable(site, hours, sel) {
   const cls = (h) => (h.hour === sel ? ' class="sel"' : '');
   const windCls = (h) => {
     let c = h.ws > p.wind ? 'v-bad' : h.ws > p.wind * 0.8 ? 'v-warn' : 'v-ok';
-    if (h.ws >= 5 && site.dirs?.length) { const dc = M.dirClass(h.wd, site); if (dc >= 2) c = 'v-bad'; else if (dc === 1 && c === 'v-ok') c = 'v-warn'; }
+    const di = M.dirIssue(h.ws, h.wd, site); if (di) { if (di[0] === 2) c = 'v-bad'; else if (c === 'v-ok') c = 'v-warn'; }
     return c;
   };
   const w = (ws, wd, c) => (ws == null ? '<span class="dim">–</span>' : `<span class="wind ${c}">${arrow(wd)}${wNum(ws)}</span>`);
