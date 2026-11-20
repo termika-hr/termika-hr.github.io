@@ -25,7 +25,9 @@ const S = {
   units: store.get('units', 'kmh'),
   theme: store.get('theme', 'auto'),  // auto | light | dark
   profile: store.get('profile', 'student'),
-  model: store.get('model', 'icon_seamless'),
+  // Default main model: ALADIN 2.3 km (the model family DHMZ uses) for the first ~2.5 days, then
+  // ECMWF 9 km to day 7. A model the pilot picked is remembered and wins.
+  model: store.get('model', 'chmi_aladin_seamless'),
   custom: store.get('custom', []),
   favs: store.get('favs', []),
   limits: store.get('limits', null),
@@ -49,7 +51,7 @@ const S = {
   points: {},      // "lat,lon" -> ground height in m, or 'loading' / 'error'
   shareCtx: null,
 };
-if (!M.MODELS[S.model] || M.MODELS[S.model].local) S.model = 'icon_seamless';
+if (!M.MODELS[S.model] || M.MODELS[S.model].local) S.model = 'chmi_aladin_seamless';
 if (!M.PROFILES[S.profile]) S.profile = 'student';
 if (S.limits) M.PROFILES.custom = { ...M.PROFILES.custom, ...S.limits };
 
