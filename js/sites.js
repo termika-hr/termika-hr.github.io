@@ -19,7 +19,6 @@ const WITH_CLUB = (base, who) => ({ hr: `${base.hr ?? base}; smjerovi: klupska m
 // instructor (8-point, so each counts as a 45° sector), passed on by the user, 2026-11-20.
 // Radoboj: launch position from the user, 2026-11-20 (height from the terrain model; the slope faces WSW).
 // Borje: directions from the club station there (flumen.club), 2026-11-20.
-const NUBI_DIRS = { hr: 'Nubigena (koordinate i smjerovi); visina iz modela terena', en: 'Nubigena (coordinates and directions); height from a terrain model' };
 const NUBI_INSTR = { hr: 'Nubigena (koordinate; smjerovi od instruktora); visina iz modela terena', en: 'Nubigena (coordinates; directions from the instructor); height from a terrain model' };
 
 export const SITES = [
