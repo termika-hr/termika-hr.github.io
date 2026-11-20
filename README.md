@@ -33,7 +33,8 @@ Prognoza za paragliding u Hrvatskoj · Paragliding forecast for Croatia (HR / EN
 It is a static web app (PWA), with no build step and no server.
 - **Open-Meteo models and the ensemble** are fetched by the browser directly.
 - **Data browsers can't fetch themselves:** a GitHub Actions workflow (`.github/workflows/pages.yml`) runs every 30 minutes and redeploys the site. It runs:
-  - `tools/obs.py`: live stations from DHMZ, METAR, ARSO and OpenWindMap → `data/obs.json`
+  - `worker/`: a Cloudflare Worker (free plan) that gathers DHMZ, METAR, ARSO and OpenWindMap every 10 minutes into KV and serves `/obs.json` with CORS; the app reads it first. Deploy from `worker/` with `CLOUDFLARE_ACCOUNT_ID=… npx wrangler deploy`.
+  - `tools/obs.py`: the same stations → `data/obs.json` on every GitHub run, as the fallback
   - `tools/aladin_si.py`: ARSO ALADIN-SI GRIB, launch sites only, fetched only when a new run is out → `data/aladin-si.json`
 - **DHMZ's ALADIN-HR** has no open data (GRIB only for a fee), so each site page links to its maps on meteo.hr.
 

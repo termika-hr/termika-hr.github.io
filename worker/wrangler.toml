@@ -1,0 +1,12 @@
+# Termika live stations: see src/index.js. Deploy with `npx wrangler deploy` from this folder.
+name = "termika-obs"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+[triggers]
+crons = ["*/10 * * * *"]
+
+[[kv_namespaces]]
+binding = "OBS"
+id = "04631b96d9c54188ba76885284ae4d14"

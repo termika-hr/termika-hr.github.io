@@ -355,14 +355,18 @@ async function loadClub() {
   } catch (e) { S.clubAt = Date.now(); /* try again later; keep what we have */ }
 }
 
+// Stations from the Cloudflare worker (worker/, refreshed every 10 minutes); the copy GitHub
+// publishes with the site (data/obs.json) is the fallback.
+const OBS_URL = 'https://termika-obs.termika.workers.dev/obs.json';
 async function loadObs() {
-  try {
-    const r = await fetch('data/obs.json', { cache: 'no-cache' });
-    if (!r.ok) throw new Error(r.status);
-    S.obs = await r.json();
-    S.obsAt = Date.now();
-    render();
-  } catch (e) { /* keep what we have */ }
+  const json = async (url) => { const r = await fetch(url, { cache: 'no-cache' }); if (!r.ok) throw new Error(r.status); return r.json(); };
+  let doc = null;
+  try { doc = await json(OBS_URL); } catch (e) { /* use the fallback */ }
+  if (!doc || !doc.stations?.length) { try { doc = await json('data/obs.json'); } catch (e) { /* keep what we have */ } }
+  if (!doc) return;
+  S.obs = doc;
+  S.obsAt = Date.now();
+  render();
 }
 
 // ECMWF ensemble for the open site.
