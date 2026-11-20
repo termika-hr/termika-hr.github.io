@@ -89,37 +89,48 @@ async function arso() {
   return out;
 }
 
-async function owm() {
-  const data = (await (await get(OWM_URL)).json()).data || [];
-  const now = Date.now(), out = [];
-  for (const s of data) {
-    const loc = s.location || {}, m = s.measurements || {};
-    const lat = loc.latitude, lon = loc.longitude;
-    if (lat == null || lon == null || lat < OWM_AREA[0] || lat > OWM_AREA[2] || lon < OWM_AREA[1] || lon > OWM_AREA[3]) continue;
-    if ((s.status || {}).state !== 'on' || !m.date || m.wind_speed_avg == null) continue;
-    const when = Date.parse(m.date);
-    if (!(now - when <= OWM_MAX_AGE_H * 3600e3)) continue;
-    const name = ((s.meta || {}).name || `OpenWindMap ${s.id}`).trim();
-    const h = name.match(/(\d{3,4})\s*m\b/);
-    out.push({
-      id: `owm:${s.id}`, name: name.replace(/\s*[-–]?\s*\d{3,4}\s*m\s*$/, '') || name, src: 'OpenWindMap',
-      lat, lon, elev: h ? +h[1] : null, time: iso(when), ws: m.wind_speed_avg, wd: m.wind_heading ?? null, wg: m.wind_speed_max ?? null, t: null,
-    });
+const inArea = (s) => {
+  const { latitude: lat, longitude: lon } = s.location || {};
+  return lat != null && lon != null && lat >= OWM_AREA[0] && lat <= OWM_AREA[2] && lon >= OWM_AREA[1] && lon <= OWM_AREA[3];
+};
+function owmStation(s, now) {
+  const loc = s.location || {}, m = s.measurements || {};
+  if (!inArea(s) || (s.status || {}).state !== 'on' || !m.date || m.wind_speed_avg == null) return null;
+  const when = Date.parse(m.date);
+  if (!(now - when <= OWM_MAX_AGE_H * 3600e3)) return null;
+  const name = ((s.meta || {}).name || `OpenWindMap ${s.id}`).trim();
+  const h = name.match(/(\d{3,4})\s*m\b/);
+  return {
+    id: `owm:${s.id}`, name: name.replace(/\s*[-–]?\s*\d{3,4}\s*m\s*$/, '') || name, src: 'OpenWindMap',
+    lat: loc.latitude, lon: loc.longitude, elev: h ? +h[1] : null, time: iso(when),
+    ws: m.wind_speed_avg, wd: m.wind_heading ?? null, wg: m.wind_speed_max ?? null, t: null,
+  };
+}
+// The list of all OpenWindMap stations (~450 kB) costs the most CPU, so it is read only every
+// 6 hours to find the stations in the area; in between each of those is read on its own.
+async function owm(env) {
+  const now = Date.now();
+  const known = await env.OBS.get('owmIds', 'json');
+  if (known && now - known.t < 6 * 3600e3) {
+    const res = await Promise.allSettled(known.ids.map(async (id) => (await (await get(`https://api.pioupiou.fr/v1/live/${id}`)).json()).data));
+    return res.filter((r) => r.status === 'fulfilled' && r.value).map((r) => owmStation(r.value, now)).filter(Boolean);
   }
-  return out;
+  const area = ((await (await get(OWM_URL)).json()).data || []).filter(inArea);
+  await env.OBS.put('owmIds', JSON.stringify({ t: now, ids: area.map((s) => s.id) }));
+  return area.map((s) => owmStation(s, now)).filter(Boolean);
 }
 
-async function build() {
+async function build(env) {
   const sources = { DHMZ: dhmz, METAR: metar, ARSO: arso, OpenWindMap: owm };
   const names = Object.keys(sources);
-  const res = await Promise.allSettled(names.map((n) => sources[n]()));
+  const res = await Promise.allSettled(names.map((n) => sources[n](env)));
   const stations = [], errors = [];
   res.forEach((r, i) => (r.status === 'fulfilled' ? stations.push(...r.value) : errors.push(`${names[i]}: ${r.reason}`)));
   return { generated: iso(Date.now()), errors, stations };
 }
 
 async function refresh(env) {
-  const doc = await build();
+  const doc = await build(env);
   if (doc.stations.length) await env.OBS.put('obs', JSON.stringify(doc));
   return doc;
 }

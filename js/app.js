@@ -362,7 +362,13 @@ async function loadObs() {
   const json = async (url) => { const r = await fetch(url, { cache: 'no-cache' }); if (!r.ok) throw new Error(r.status); return r.json(); };
   let doc = null;
   try { doc = await json(OBS_URL); } catch (e) { /* use the fallback */ }
-  if (!doc || !doc.stations?.length) { try { doc = await json('data/obs.json'); } catch (e) { /* keep what we have */ } }
+  // If the worker is missing or has stalled (older than 30 minutes), take the newer of the two.
+  if (!doc || !doc.stations?.length || Date.now() - Date.parse(doc.generated) > 30 * 60e3) {
+    try {
+      const gh = await json('data/obs.json');
+      if (!doc || !doc.stations?.length || Date.parse(gh.generated) > Date.parse(doc.generated)) doc = gh;
+    } catch (e) { /* keep what we have */ }
+  }
   if (!doc) return;
   S.obs = doc;
   S.obsAt = Date.now();
