@@ -135,11 +135,26 @@ async function refresh(env) {
   return doc;
 }
 
+// GitHub's own schedule runs only every few hours, so every 2 hours this asks it to run the
+// workflow that refreshes ALADIN-SI and the wind field (needs the GH_TOKEN secret: a
+// fine-grained token with Actions read/write on termika-hr/termika-hr.github.io only).
+const GH_DISPATCH = 'https://api.github.com/repos/termika-hr/termika-hr.github.io/actions/workflows/pages.yml/dispatches';
+async function nudgeGitHub(env, when) {
+  const d = new Date(when);
+  if (!env.GH_TOKEN || d.getUTCMinutes() >= 10 || d.getUTCHours() % 2) return;
+  const res = await fetch(GH_DISPATCH, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'User-Agent': UA, 'X-GitHub-Api-Version': '2022-11-28' },
+    body: JSON.stringify({ ref: 'main' }),
+  });
+  if (!res.ok) console.log('GitHub dispatch failed', res.status, (await res.text()).slice(0, 200));
+}
+
 const HEADERS = { 'content-type': 'application/json; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=120' };
 
 export default {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(refresh(env));
+    ctx.waitUntil(Promise.allSettled([refresh(env), nudgeGitHub(env, event.scheduledTime)]));
   },
   async fetch(request, env) {
     const url = new URL(request.url);
