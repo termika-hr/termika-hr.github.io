@@ -141,13 +141,16 @@ async function refresh(env) {
 const GH_DISPATCH = 'https://api.github.com/repos/termika-hr/termika-hr.github.io/actions/workflows/pages.yml/dispatches';
 async function nudgeGitHub(env, when) {
   const d = new Date(when);
-  if (!env.GH_TOKEN || d.getUTCMinutes() >= 10 || d.getUTCHours() % 2) return;
+  // A one-off run can be asked for by putting the KV key "nudgeNow" (any value).
+  const force = await env.OBS.get('nudgeNow');
+  if (force) await env.OBS.delete('nudgeNow');
+  if (!env.GH_TOKEN || (!force && (d.getUTCMinutes() >= 10 || d.getUTCHours() % 2))) return;
   const res = await fetch(GH_DISPATCH, {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'User-Agent': UA, 'X-GitHub-Api-Version': '2022-11-28' },
     body: JSON.stringify({ ref: 'main' }),
   });
-  if (!res.ok) console.log('GitHub dispatch failed', res.status, (await res.text()).slice(0, 200));
+  console.log(res.ok ? 'GitHub workflow dispatched' : `GitHub dispatch failed ${res.status} ${(await res.text()).slice(0, 200)}`);
 }
 
 const HEADERS = { 'content-type': 'application/json; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=120' };
