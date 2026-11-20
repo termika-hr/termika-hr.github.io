@@ -390,6 +390,9 @@ export function scoreHour(h, a, site, prof, daylight) {
     const off = offAngle(a.lee.wd, site.dirs);
     if (off > 112.5 && a.lee.ws >= 15) add(2, 'lee', a.lee.ws);
     else if (off >= 90 && a.lee.ws >= 6) add(1, 'leeRisk', a.lee.ws);
+    // Calm at the launch with a light breeze above it from behind: that breeze sets the flow,
+    // so the launch most likely gets it from behind too.
+    else if ((h.ws ?? 0) < 2 && off > 112.5 && a.lee.ws >= 3) add(1, 'calmTail', a.lee.ws);
   }
   // Calm and sunny: the sunlit slope draws air up it, a slope facing away from the sun lets it drain
   // down, i.e. from behind on that launch. So both sides of a hill can't be good at the same time.
