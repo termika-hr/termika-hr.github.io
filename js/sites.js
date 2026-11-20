@@ -15,27 +15,29 @@ const WITH_CLUB = (base, who) => ({ hr: `${base.hr ?? base}; smjerovi: klupska m
 // Nubigena school sites (`school: true`): coordinates from the school's list of flying sites.
 // Heights and slope directions there come from the Copernicus 90 m terrain model (Open-Meteo elevation API);
 // Hruševec and Kupljenovo istok: direction from the site name, confirmed by the terrain.
-// Kupljenovo sjever, Gornja Pušća, Radoboj: directions given by the user (Nubigena student), 2026-11-18.
-// Kupljenovo istok and Borje: directions from the club stations there (flumen.club), 2026-11-20.
-const NUBI = { hr: 'Nubigena (koordinate); visina i smjer iz modela terena', en: 'Nubigena (coordinates); height and direction from a terrain model' };
+// Kupljenovo istok and sjever, Hruševec jug and sjever, Radoboj: directions from the Nubigena
+// instructor (8-point, so each counts as a 45° sector), passed on by the user, 2026-11-20.
+// Gornja Pušća: directions given by the user (Nubigena student), 2026-11-18.
+// Borje: directions from the club station there (flumen.club), 2026-11-20.
 const NUBI_DIRS = { hr: 'Nubigena (koordinate i smjerovi); visina iz modela terena', en: 'Nubigena (coordinates and directions); height from a terrain model' };
+const NUBI_INSTR = { hr: 'Nubigena (koordinate; smjerovi od instruktora); visina iz modela terena', en: 'Nubigena (coordinates; directions from the instructor); height from a terrain model' };
 
 export const SITES = [
   {
     id: 'kupljenovo-istok', name: 'Kupljenovo istok', region: 'north', school: true,
-    lat: 45.9386, lon: 15.8065, elev: 159, dirs: ['ENE', 'E', 'ESE'], dirsWarn: ['NNE', 'NE', 'SE', 'SSE'], src: WITH_CLUB({ hr: 'Nubigena (koordinate)', en: 'Nubigena (coordinates)' }, 'Nubigena i Parafreek'),
+    lat: 45.9386, lon: 15.8065, elev: 159, dirs: ['NE', 'E'], src: NUBI_INSTR,
   },
   {
     id: 'kupljenovo-sjever', name: 'Kupljenovo sjever', region: 'north', school: true,
-    lat: 45.9523, lon: 15.7922, elev: 202, dirs: ['SE', 'S', 'SW'], src: NUBI_DIRS,
+    lat: 45.9523, lon: 15.7922, elev: 202, dirs: ['N', 'NE'], src: NUBI_INSTR,
   },
   {
     id: 'hrusevec-jug', name: 'Hruševec jug', region: 'north', school: true,
-    lat: 45.9306, lon: 15.7763, elev: 201, dirs: ['S', 'SSW'], src: NUBI,
+    lat: 45.9306, lon: 15.7763, elev: 201, dirs: ['S', 'SW'], src: NUBI_INSTR,
   },
   {
     id: 'hrusevec-sjever', name: 'Hruševec sjever', region: 'north', school: true,
-    lat: 45.9386, lon: 15.7916, elev: 197, dirs: ['N', 'NW'], src: NUBI_DIRS,
+    lat: 45.9386, lon: 15.7916, elev: 197, dirs: ['N'], src: NUBI_INSTR,
   },
   {
     id: 'gornja-pusca', name: 'Gornja Pušća', region: 'north', school: true,
@@ -43,7 +45,7 @@ export const SITES = [
   },
   {
     id: 'radoboj', name: 'Radoboj', region: 'north', school: true,
-    lat: 46.1665, lon: 15.9186, elev: 245, dirs: ['S', 'SW', 'W'], src: NUBI_DIRS,
+    lat: 46.1665, lon: 15.9186, elev: 245, dirs: ['SW', 'W'], src: NUBI_INSTR,
   },
   {
     id: 'borje', name: 'Borje (Kalnik)', region: 'north', school: true,
