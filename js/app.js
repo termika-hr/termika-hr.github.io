@@ -36,6 +36,8 @@ const S = {
   club: null,      // club stations on launches (flumen.club), read live
   ens: null,       // ECMWF ensemble for the open site
   kpiHelp: null,   // which summary figure's explanation is open on the site page
+  tableAll: store.get('tableAll', false), // hourly table: all rows or only the main ones
+  soundOpen: null, // sounding open or closed by the pilot (null: open on wide screens)
   gr: null,        // rain and evaporation around the open site, for the ground wetness
   dmodel: null,    // model shown on the site page; null = main model
   hour: null,
@@ -458,7 +460,7 @@ function header(r) {
 }
 
 function footer() {
-  return `<footer class="foot"><p class="disc">${t().disclaimer}</p><p><button type="button" class="btn small" data-act="share">${t().share}</button></p><p>${t().attribution}</p></footer>`;
+  return `<footer class="foot"><p class="disc">${t().disclaimer}</p><p><button type="button" class="btn small" data-act="share">${t().share}</button></p><details class="sources"><summary>${t().sourcesTitle}</summary><p>${t().attribution}</p></details></footer>`;
 }
 
 // ---------- install + share ----------
@@ -535,7 +537,7 @@ function bestBets() {
   const goCount = (i) => sites.filter((s) => S.ov.days[s.id]?.[i]?.summary.state === 'go').length;
   const chips = first.map((d, i) => {
     const p = dayParts(d.date), n = goCount(i);
-    return `<button type="button" class="chip${p.weekend ? ' wknd' : ''}" data-bestday="${i}" aria-pressed="${i === di}">${i === 0 ? t().today : i === 1 ? t().tomorrow : p.wd} <b>${p.dd}</b>${n ? `<i class="count">${n}</i>` : ''}</button>`;
+    return `<button type="button" class="chip${p.weekend ? ' wknd' : ''}" data-bestday="${i}" aria-pressed="${i === di}">${i === 0 ? t().today : i === 1 ? t().tomorrow : p.wd} <b>${p.dd}</b>${n ? `<i class="count" title="${esc(t().goCount(n))}" aria-label="${esc(t().goCount(n))}">${n}</i>` : ''}</button>`;
   }).join('');
   const rows = sites.map((s) => ({ s, sum: S.ov.days[s.id]?.[di]?.summary })).filter((x) => x.sum);
   const go = rows.filter((x) => x.sum.state === 'go')
@@ -544,7 +546,7 @@ function bestBets() {
   const maybe = rows.filter((x) => x.sum.state === 'maybe');
   const items = go.map(({ s, sum }) => `<li><a href="${hrefFor(s, di)}"><span class="dot st-go"></span><b>${esc(s.name)}</b>${stars(sum.rating)}<span class="meta num">${windowText(sum.window)}${sum.topAgl >= 150 ? ` · ${t().thermalsTo(m50(sum.top))}` : ''}</span></a></li>`).join('');
   const caution = maybe.length ? `<p class="hint caution"><span class="dot st-maybe"></span> ${t().caution}: ${maybe.slice(0, 8).map(({ s }) => `<a href="${hrefFor(s, di)}">${esc(s.name)}</a>`).join(', ')}</p>` : '';
-  return `<section class="best"><h2>${t().best}</h2><div class="chips" role="group">${chips}</div>
+  return `<section class="best"><h2>${t().best}</h2><p class="hint">${t().bestHint}</p><div class="chips" role="group">${chips}</div>
     <div class="best-day">${items ? `<ol>${items}</ol>` : `<p class="none">${t().noneGo}</p>`}${caution}</div></section>`;
 }
 
@@ -575,8 +577,9 @@ function matrix() {
   }
   const body = groups.map(([g, list]) => `<div class="mgroup">${t().regions[g]}</div>${list.map(row).join('')}`).join('');
   const legend = ['go', 'maybe', 'no'].map((k) => `<span><i class="dot st-${k}"></i>${t().state[k]}</span>`).join('');
-  return `<section><div class="matrix" role="table">${head}${body}</div></section>
-    <div class="legend">${legend}<span class="num">11–15 = ${S.lang === 'hr' ? 'siguran prozor (sati)' : 'safe window (hours)'}</span><span class="num">1650 = ${S.lang === 'hr' ? 'vrh termike, m n.v.' : 'thermal top, m ASL'}</span></div>`;
+  return `<section><h2 class="sec-title">${t().allSites}</h2>
+    <div class="legend matrix-legend">${legend}<span class="num"><b>11–15</b> = ${t().legWindow}</span><span class="num"><b>1650</b> = ${t().legTop}</span><span><b>!</b> = ${t().legMaybe}</span></div>
+    <div class="matrix" role="table">${head}${body}</div></section>`;
 }
 
 function help() {
@@ -860,7 +863,6 @@ function siteHead(site, di = 0) {
       ${site.point ? `<p class="warn">${t().pointNote}</p>` : ''}
       ${site.check ? `<p class="warn">${t().check}</p>` : ''}
       ${site.note ? `<p>${esc(tr(site.note))}</p>` : ''}
-      ${site.src ? `<p>${t().source}: ${esc(tr(site.src))}</p>` : ''}
     </div>
     <div class="site-actions">${actions}</div>
   </section>`;
@@ -950,7 +952,7 @@ function detailView(site, di) {
   const mdays = dm === S.model ? days : S.dt.days[dm];
   const baseDay = days[di];
   const tabs = `<nav class="daytabs" role="tablist">${days.map((d, i) => { const p = dayParts(d.date); const st = (mdays.find((x) => x.date === d.date) || {}).summary?.state || 'nodata'; return `<a role="tab" class="daytab st-${st}" aria-selected="${i === di}" href="${hrefFor(site, i)}">${i === 0 ? t().today.slice(0, 5) : p.wd}<b>${p.dd}</b></a>`; }).join('')}</nav>`;
-  const modelBar = `<div class="model-bar" id="model-bar"><span>${t().shown}: <b>${M.MODELS[dm].label}</b> <span class="dim">(${modelLong(dm)})</span></span>${dm !== S.model ? `<button type="button" class="btn small" data-model="">${t().backToMain(M.MODELS[S.model].label)}</button>` : ''}</div>`;
+  const modelBar = dm === S.model ? '<div id="model-bar"></div>' : `<div class="model-bar" id="model-bar"><span>${t().shown}: <b>${M.MODELS[dm].label}</b> <span class="dim">(${modelLong(dm)})</span></span><button type="button" class="btn small" data-model="">${t().backToMain(M.MODELS[S.model].label)}</button></div>`;
   const rise = baseDay.sunrise ? +baseDay.sunrise.slice(11, 13) : 7;
   const set = baseDay.sunset ? +baseDay.sunset.slice(11, 13) + 1 : 18;
   const cols = baseDay.hours.filter((h) => h.hour >= rise && h.hour <= set);
@@ -968,16 +970,21 @@ function detailView(site, di) {
   const enCls = en ? (en.p >= 0.7 ? 'v-ok' : en.p >= 0.4 ? 'v-warn' : 'v-bad') : '';
   // Each label opens a short explanation of that figure under the grid.
   const kt = (k, label) => `<button type="button" class="kpi-q" data-act="kpi-help" data-k="${k}" aria-expanded="${S.kpiHelp === k}" aria-controls="kpi-help">${label}</button>`;
-  const kpis = `<dl class="kpis">
-    <div><dt>${kt('window', t().window)}</dt><dd class="num">${sum.window ? windowText(sum.window) : t().noWindow}${sum.rating ? `<small>${stars(sum.rating)}</small>` : ''}</dd></div>
-    <div><dt>${kt('ttop', t().ttop)}</dt><dd class="num">${sum.topAgl >= 150 ? `${m50(sum.top)} m<small>${t().aboveLaunch(m50(sum.topAgl))}</small>` : `–<small>${t().noThermals}</small>`}</dd></div>
-    <div><dt>${kt('cbase', t().cbase)}</dt><dd class="num">${sum.base ? `${m50(sum.base)} m` : `–<small>${sum.topAgl >= 150 ? t().blue : t().noCu}</small>`}</dd></div>
-    <div><dt>${kt('wstar', t().wstar)}</dt><dd class="num">${sum.wstar > 0.2 ? `${dec1(sum.wstar)} m/s` : '–'}<small>${t().est}</small></dd></div>
-    ${ag ? `<div><dt>${kt('agree', t().agree)}</dt><dd class="num ${agCls}">${ag.go}/${ag.n}<small>${t().agreeText(ag.go, ag.n)}</small></dd></div>` : ''}
-    ${gr ? groundKpi(gr).replace('%KT%', kt('ground', t().groundKpi)) : ''}
-    ${fg ? `<div><dt>${kt('fog', t().fogKpi)}</dt><dd class="${fg.cls}">${fg.main}<small>${fg.note}</small></dd></div>` : ''}
-    ${en ? `<div><dt>${kt('ens', t().ens)}</dt><dd class="num ${enCls}">${Math.round(en.p * 100)} %<small>${en.text} · ${t().ensSrc}</small></dd></div>` : ''}
-  </dl>${S.kpiHelp && t().kpiHelp[S.kpiHelp] ? `<p class="kpi-help" id="kpi-help">${t().kpiHelp[S.kpiHelp]}</p>` : ''}`;
+  // Three groups: when and how well you can fly, how sure the forecast is, ground and visibility.
+  const thermal = sum.topAgl >= 150
+    ? [`${m50(sum.top)} m`, [t().aboveLaunch(m50(sum.topAgl)), sum.wstar > 0.2 ? `${dec1(sum.wstar)} m/s` : null, sum.base ? t().baseAt(m50(sum.base)) : t().blueKpi].filter(Boolean).join(' · ')]
+    : ['–', t().noThermals];
+  const group = (title, items) => (items.some(Boolean) ? `<div class="kpi-group"><h3>${title}</h3><dl class="kpis">${items.join('')}</dl></div>` : '');
+  const kpis = group(t().gFly, [
+    `<div><dt>${kt('window', t().window)}</dt><dd class="num">${sum.window ? windowText(sum.window) : t().noWindow}${sum.rating ? `<small>${stars(sum.rating)}</small>` : ''}</dd></div>`,
+    `<div><dt>${kt('thermal', t().thermalKpi)}</dt><dd class="num">${thermal[0]}<small>${thermal[1]}</small></dd></div>`,
+  ]) + group(t().gSure, [
+    ag ? `<div><dt>${kt('agree', t().agree)}</dt><dd class="num ${agCls}">${ag.go}/${ag.n}<small>${t().agreeText(ag.go, ag.n)}</small></dd></div>` : '',
+    en ? `<div><dt>${kt('ens', t().ens)}</dt><dd class="num ${enCls}">${Math.round(en.p * 100)} %<small>${en.text} · ${t().ensSrc}</small></dd></div>` : '',
+  ]) + group(t().gGround, [
+    gr ? groundKpi(gr).replace('%KT%', kt('ground', t().groundKpi)) : '',
+    fg ? `<div><dt>${kt('fog', t().fogKpi)}</dt><dd class="${fg.cls}">${fg.main}<small>${fg.note}</small></dd></div>` : '',
+  ]) + (S.kpiHelp && t().kpiHelp[S.kpiHelp] ? `<p class="kpi-help" id="kpi-help">${t().kpiHelp[S.kpiHelp]}</p>` : '');
   const reasonLine = sum.state === 'no' && sum.mainReason ? `<span>${t().mainReason}: ${t().short[sum.mainReason]}</span>` : '';
   const sun = baseDay.sunrise && baseDay.sunset ? `<span class="dim">${t().sun} ${baseDay.sunrise.slice(11, 16)}–${baseDay.sunset.slice(11, 16)}</span>` : '';
   const summary = `<section class="summary st-${sum.state}"><div class="verdict"><span class="pill">${t().state[sum.state]}</span><span>${dayParts(day.date).full}</span>${reasonLine}${sun}</div>${kpis}</section>`;
@@ -1017,11 +1024,15 @@ function hourlyTable(site, hours, sel) {
     ['cape', (h) => (h.cape >= 50 ? `<span class="${h.cape >= 1500 ? 'v-bad' : h.cape >= 500 ? 'v-warn' : ''}">${Math.round(h.cape)}</span>` : '<span class="dim">–</span>')],
     ['temp', (h) => (h.T == null ? '–' : Math.round(h.T))],
   ].filter(Boolean);
+  const ADV = ['ens', 'l850', 'l700', 'vis', 'cape', 'temp'];
+  const nAdv = rows.filter(([k]) => ADV.includes(k)).length;
+  const shown = S.tableAll ? rows : rows.filter(([k]) => !ADV.includes(k));
   const unitFor = (k) => (['wind', 'gust', 'air', 'l850', 'l700'].includes(k) ? ` <span class="dim">${unitLabel()}</span>` : k === 'top' || k === 'base' ? ' <span class="dim">m</span>' : '');
-  const body = rows.map(([k, f, sep]) => `<tr${sep === 'sep' ? ' class="sep"' : ''}><th scope="row">${t().rows[k]}${unitFor(k)}</th>${hours.map((h) => `<td${cls(h)}>${f(h)}</td>`).join('')}</tr>`).join('');
+  const body = shown.map(([k, f, sep]) => `<tr${sep === 'sep' ? ' class="sep"' : ''}><th scope="row">${t().rows[k]}${unitFor(k)}</th>${hours.map((h) => `<td${cls(h)}>${f(h)}</td>`).join('')}</tr>`).join('');
   return `<section class="card"><div class="card-head"><h2>${t().hourly}</h2>${unitSeg()}</div><div class="table-scroll" id="hscroll"><table class="htable">
     <thead><tr><th scope="row"></th>${hours.map((h) => `<th${cls(h)}><button type="button" data-hour="${h.hour}" aria-pressed="${h.hour === sel}">${pad2(h.hour)}</button></th>`).join('')}</tr></thead>
-    <tbody>${body}</tbody></table></div></section>`;
+    <tbody>${body}</tbody></table></div>
+    <button type="button" class="btn small more-rows" data-act="table-all" aria-expanded="${S.tableAll}">${S.tableAll ? t().fewerRows : t().moreRows(nAdv)}</button></section>`;
 }
 
 // Fog and visibility over the daylight hours of a day, from the shown model.
@@ -1073,7 +1084,7 @@ function altitudeGrid(site, hours, sel) {
     return `<tr${launch ? ' class="launch-row"' : ''}><th scope="row">${label}</th>${cells}</tr>`;
   }).join('');
   const head = `<thead><tr><th scope="row"><span class="dim">${unitLabel()}</span></th>${hours.map((h) => `<th${cls(h)}><button type="button" data-hour="${h.hour}" aria-pressed="${h.hour === sel}">${pad2(h.hour)}</button></th>`).join('')}</tr></thead>`;
-  return `<section class="card"><div class="card-head"><h2>${t().alt}</h2>${unitSeg()}</div><p class="hint">${t().altHint}</p>
+  return `<section class="card"><h2>${t().alt}</h2><p class="hint">${t().altHint}</p>
     <div class="table-scroll" id="ascroll"><table class="htable agrid">${head}<tbody>${rows}</tbody></table></div>
     <div class="legend alt-legend"><span><i class="sw lay-th"></i>${t().altThermal}</span><span><i class="sw lay-cu"></i>${t().altCloud}</span><span><b class="v-ok">●</b><b class="v-warn">●</b><b class="v-bad">●</b> ${t().altColors}</span></div>
   </section>`;
@@ -1101,10 +1112,10 @@ function hourDetail(site, h) {
     <dt>${t().rows.temp}</dt><dd>${Math.round(h.T)} °C / ${S.lang === 'hr' ? 'rosište' : 'dew point'} ${h.Td == null ? '–' : Math.round(h.Td)} °C</dd>
   </dl>` : '';
   return `<section class="card"><div class="hour-grid">
-    <div class="why"><h2>${t().why} · ${t().hourTitle(pad2(h.hour))}</h2><ul>${list}</ul>${facts}</div>
-    <figure class="sounding" style="margin:0"><h2>${t().sounding} · ${t().hourTitle(pad2(h.hour))}</h2>${soundingSvg(site, h, st)}
-      <figcaption class="s-legend"><span><i style="border-color:var(--temp)"></i>${t().sLegend.T}</span><span><i style="border-color:var(--sky)"></i>${t().sLegend.Td}</span><span><i style="border-color:var(--accent);border-top-style:dashed"></i>${t().sLegend.parcel}</span>${st && st.inv ? `<span><i class="inv-sw"></i>${t().sLegend.inv}</span>` : ''}</figcaption>
-    </figure>
+    <div class="why"><h2>${t().hourDetailTitle(pad2(h.hour))}</h2><ul>${list}</ul>${facts}</div>
+    <details class="sounding"${S.soundOpen ?? matchMedia('(min-width: 900px)').matches ? ' open' : ''}><summary><h2>${t().sounding} · ${t().hourTitle(pad2(h.hour))}</h2><span class="dim">${t().soundingFor}</span></summary>${soundingSvg(site, h, st)}
+      <div class="s-legend"><span><i style="border-color:var(--temp)"></i>${t().sLegend.T}</span><span><i style="border-color:var(--sky)"></i>${t().sLegend.Td}</span><span><i style="border-color:var(--accent);border-top-style:dashed"></i>${t().sLegend.parcel}</span>${st && st.inv ? `<span><i class="inv-sw"></i>${t().sLegend.inv}</span>` : ''}</div>
+    </details>
   </div></section>`;
 }
 
@@ -1221,7 +1232,7 @@ function links(site) {
       ${a('http://amc.crocontrol.hr/', t().lAmc)}
       ${a(`https://thermal.kk7.ch/#${lat},${lon},13`, t().lThermals)}
       ${a(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=14/${lat}/${lon}`, t().map)}
-    </nav>`;
+    </nav>${site.src ? `<p class="hint site-src">${t().siteSrc}: ${esc(tr(site.src))}</p>` : ''}`;
 }
 
 // ---------- settings dialog ----------
@@ -1372,7 +1383,8 @@ async function handleClick(b) {
     evt.prompt();
     try { await evt.userChoice; } catch (err) { /* dismissed */ }
     render();
-  } else if (act === 'kpi-help') { S.kpiHelp = S.kpiHelp === b.dataset.k ? null : b.dataset.k; render(); }
+  } else if (act === 'table-all') { S.tableAll = !S.tableAll; store.set('tableAll', S.tableAll); render(); }
+  else if (act === 'kpi-help') { S.kpiHelp = S.kpiHelp === b.dataset.k ? null : b.dataset.k; render(); }
   else if (act === 'air-all') { S.mapOpts.airAll = !S.mapOpts.airAll; store.set('mapOpts', S.mapOpts); render(); }
   else if (act === 'wind-anim') { S.mapOpts.windAnim = !windAnimOn(); store.set('mapOpts', S.mapOpts); render(); }
   else if (act === 'limit-hide') { S.limitHidden = true; render(); }
@@ -1423,6 +1435,10 @@ async function handleClick(b) {
     lookupElev();
   }
 }
+
+document.addEventListener('toggle', (e) => {
+  if (e.target.matches && e.target.matches('details.sounding')) S.soundOpen = e.target.open;
+}, true);
 
 document.addEventListener('change', (e) => {
   const el = e.target;

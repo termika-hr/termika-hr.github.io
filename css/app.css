@@ -137,6 +137,11 @@ h3 { font-size: 1.1rem; }
 
 .status { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: 0.85rem; }
 .status b { color: var(--ink); font-weight: 500; }
+/* The hidden attribute wins over display rules (e.g. the custom limits in Settings). */
+[hidden] { display: none !important; }
+.sec-title { font: 600 1.35rem/1.2 var(--f-display); margin: 26px 0 8px; }
+.matrix-legend { margin: 0 0 10px; }
+.matrix-legend b { color: var(--ink); }
 /* The main model can be changed right from the status line. */
 .status-pick { display: inline-flex; align-items: center; gap: 5px; }
 .status .pick { position: relative; display: inline-flex; }
@@ -242,6 +247,8 @@ h3 { font-size: 1.1rem; }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 0; }
 .kpis div { min-width: 0; }
 .kpis dt { font: 600 0.75rem/1.2 var(--f-display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.kpi-group + .kpi-group { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.kpi-group h3 { margin: 0 0 8px; font: 600 1rem/1.2 var(--f-display); color: var(--ink); }
 .kpi-q { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
 .kpi-q::after {
   content: '?'; display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%;
@@ -289,6 +296,14 @@ h3 { font-size: 1.1rem; }
 .dim { color: var(--muted); }
 
 .hour-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 18px; align-items: start; }
+details.sounding summary { cursor: pointer; list-style: none; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+details.sounding summary::-webkit-details-marker { display: none; }
+details.sounding summary h2 { margin: 0; }
+details.sounding summary::before { content: '▸'; color: var(--muted); }
+details.sounding[open] summary::before { content: '▾'; }
+details.sounding[open] summary { margin-bottom: 8px; }
+details.sounding summary .dim { font-size: 0.85rem; }
+.more-rows { margin-top: 10px; }
 .why ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .why li { display: flex; gap: 10px; align-items: flex-start; }
 .why li .dot { margin-top: 6px; }
@@ -358,6 +373,8 @@ details.help p { max-width: 70ch; margin: 10px 0 0; }
 .foot { color: var(--muted); font-size: 0.82rem; display: grid; gap: 6px; max-width: 80ch; }
 .foot p { margin: 0; }
 .foot .disc { color: var(--ink); font-weight: 500; }
+.foot details.sources summary { cursor: pointer; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; width: fit-content; }
+.foot details.sources[open] summary { margin-bottom: 6px; }
 
 /* ---------- dialog ---------- */
 dialog {
