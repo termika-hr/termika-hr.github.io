@@ -68,8 +68,8 @@ Open http://localhost:8765.
 - **Thermal maps:** [thermal.kk7.ch](https://thermal.kk7.ch/) (CC BY-NC-SA 4.0, non-commercial use).
 - **Base maps:** OpenTopoMap (CC-BY-SA), © OpenStreetMap contributors.
 - **Launches:**
-  - Coordinates: HR XC liga waypoints (airtribune.com) and the Nubigena school's list of flying sites.
-  - Directions: HR XC liga, istra.hr, visitsinj.hr, lepoglava-info.hr, visitkrizevci.hr, Nubigena.
+  - Coordinates: HR XC liga waypoints (airtribune.com), the Nubigena school's list of flying sites, and the flumen.club club station network (PJK Flumen) for ten launches added on 2026-11-20 (Plešivica, Jugovec, Korija, Grobnik – Žbelac, Duplja, Gašparac, Bjelopolje, Libinje, Poštak, Visočica).
+  - Directions: on launches with a club station, the clubs' own directions from the flumen.club network (used with permission); otherwise HR XC liga, istra.hr, visitsinj.hr, lepoglava-info.hr, visitkrizevci.hr, Nubigena. Visočica: from the terrain, to be confirmed.
   - Heights of the school sites: Copernicus 90 m terrain model.
 
 Termika helps with planning. The decision to fly is made at launch.
