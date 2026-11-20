@@ -116,6 +116,20 @@ export function offAngle(wd, dirs) {
   return best;
 }
 
+// How the wind direction suits a launch: 0 good, 1 caution, 2 crosswind, 3 from behind.
+// Launches with club data list their good (dirs) and marginal (dirsWarn) 22.5° sectors, coloured
+// exactly as the clubs do; elsewhere up to 22.5° from a listed direction is good and up to 45° caution.
+export function dirClass(wd, site) {
+  if (wd == null || !site.dirs || !site.dirs.length) return 0;
+  const off = offAngle(wd, site.dirs);
+  if (off > 112.5) return 3;
+  if (site.dirsWarn) {
+    if (off <= 11.25) return 0;
+    return site.dirsWarn.length && offAngle(wd, site.dirsWarn) <= 11.25 ? 1 : 2;
+  }
+  return off > 45 ? 2 : off > 22.5 ? 1 : 0;
+}
+
 function interp(points, key, z) {
   if (!points.length) return null;
   if (z <= points[0].z) return points[0][key];
@@ -343,10 +357,10 @@ export function scoreHour(h, a, site, prof, daylight) {
     else if (sp > prof.spread * 0.7) add(1, 'gustyish', sp);
   }
   if (h.ws >= 5 && site.dirs && site.dirs.length) {
-    const off = offAngle(h.wd, site.dirs);
-    if (off > 112.5) add(2, 'tail');
-    else if (off > 45) add(2, 'cross');
-    else if (off > 22.5) add(1, 'crossEdge');
+    const dc = dirClass(h.wd, site);
+    if (dc === 3) add(2, 'tail');
+    else if (dc === 2) add(2, 'cross');
+    else if (dc === 1) add(1, 'crossEdge');
   }
   if (a.lee && site.dirs && site.dirs.length) {
     const off = offAngle(a.lee.wd, site.dirs);
@@ -505,7 +519,7 @@ export function ensembleProb(json, site, prof) {
       if (pass && pr != null) pass = pr < 0.5;
       // 850 hPa (about 1500 m) is in the flying layer only when the launch is high enough.
       if (pass && w850 != null && site.elev >= 400) pass = w850 <= prof.air;
-      if (pass && ws >= 5 && wd != null && site.dirs && site.dirs.length) pass = offAngle(wd, site.dirs) <= 45;
+      if (pass && ws >= 5 && wd != null && site.dirs && site.dirs.length) pass = dirClass(wd, site) <= 1;
       if (pass) ok++;
     }
     out[time] = n ? ok / n : null;

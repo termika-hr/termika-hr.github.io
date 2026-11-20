@@ -129,15 +129,18 @@ function arrow(wd) {
   return `<svg viewBox="-8 -8 16 16" aria-hidden="true" style="transform:rotate(${Math.round(wd + 180)}deg)"><path d="M0-7L5 5 0 2.4-5 5z"/></svg>`;
 }
 // Launch rose: shaded wedges show the wind directions the launch takes.
-function rose(dirs, cls = '', labels = false) {
-  const r = 10;
+// With club sectors (warn given) each direction is a 22.5° sector, marginal ones in yellow;
+// otherwise each listed direction is drawn 45° wide, as wide as it counts as good.
+function rose(dirs, cls = '', labels = false, warn = null) {
+  const r = 10, half = warn ? 11.25 : 22.5;
   const pt = (deg) => [r * Math.sin((deg * Math.PI) / 180), -r * Math.cos((deg * Math.PI) / 180)];
-  const wedges = (dirs || []).map((d) => {
+  const wedge = (d, fill) => {
     const deg = M.DIR_DEG[d];
     if (deg == null) return '';
-    const [x1, y1] = pt(deg - 22.5), [x2, y2] = pt(deg + 22.5);
-    return `<path d="M0 0L${x1.toFixed(2)} ${y1.toFixed(2)}A${r} ${r} 0 0 1 ${x2.toFixed(2)} ${y2.toFixed(2)}Z" fill="var(--accent)"/>`;
-  }).join('');
+    const [x1, y1] = pt(deg - half), [x2, y2] = pt(deg + half);
+    return `<path d="M0 0L${x1.toFixed(2)} ${y1.toFixed(2)}A${r} ${r} 0 0 1 ${x2.toFixed(2)} ${y2.toFixed(2)}Z" fill="${fill}"/>`;
+  };
+  const wedges = (warn || []).map((d) => wedge(d, 'var(--maybe)')).join('') + (dirs || []).map((d) => wedge(d, 'var(--accent)')).join('');
   const lab = labels
     ? ['N', 'E', 'S', 'W'].map((d) => { const [x, y] = pt(M.DIR_DEG[d]).map((v) => v * 1.32); return `<text x="${x.toFixed(1)}" y="${(y + 1.6).toFixed(1)}" text-anchor="middle" font-size="4.4" font-weight="600" fill="var(--muted)" font-family="var(--f-display)">${dirLabel(d, S.lang)}</text>`; }).join('')
     : '';
@@ -574,7 +577,7 @@ function matrix() {
       const sub = sum.state !== 'no' && sum.topAgl >= 150 ? `<i>${m50(sum.top)}</i>` : '';
       return `<a class="mcell st-${sum.state}" href="${hrefFor(s, i)}" title="${esc(tip)}" aria-label="${esc(tip)}">${main}${sub}</a>`;
     }).join('');
-    return `<div class="mrow" role="row"><a class="mname" href="${hrefFor(s)}">${rose(s.dirs)}<span><b>${esc(s.name)}</b><small>${Math.round(s.elev)} m · ${dirsText(s.dirs)}</small></span></a>${cells}</div>`;
+    return `<div class="mrow" role="row"><a class="mname" href="${hrefFor(s)}">${rose(s.dirs, '', false, s.dirsWarn)}<span><b>${esc(s.name)}</b><small>${Math.round(s.elev)} m · ${dirsText(s.dirs)}</small></span></a>${cells}</div>`;
   };
   const groups = [];
   const favs = sites.filter((s) => S.favs.includes(s.id));
@@ -808,7 +811,7 @@ function stationWind(s) {
 function pinWind(h, site) {
   const p = prof();
   let c = h.ws > p.wind ? 'v-bad' : h.ws > p.wind * 0.8 ? 'v-warn' : 'v-ok';
-  if (h.ws >= 5 && site.dirs?.length) { const off = M.offAngle(h.wd, site.dirs); if (off > 45) c = 'v-bad'; else if (off > 22.5 && c === 'v-ok') c = 'v-warn'; }
+  if (h.ws >= 5 && site.dirs?.length) { const dc = M.dirClass(h.wd, site); if (dc >= 2) c = 'v-bad'; else if (dc === 1 && c === 'v-ok') c = 'v-warn'; }
   return `<span class="pin-wind ${c}">${h.ws >= 1 ? arrow(h.wd) : ''}${h.ws < 1 ? '0' : wNum(h.ws)}</span>`;
 }
 
@@ -825,7 +828,7 @@ function mapData() {
       : h && h.a ? `${degLabel(h.wd, S.lang)} ${F.w(h.ws)}${h.a.topAgl >= 150 ? ` · ${t().thermalsTo(m50(h.a.top))}` : ''}` : '';
     return {
       id: s.id, lat: s.lat, lon: s.lon, name: s.name,
-      icon: `<div class="pin st-${state}">${rose(s.dirs)}${h && h.ws != null ? pinWind(h, s) : ''}</div>`,
+      icon: `<div class="pin st-${state}">${rose(s.dirs, '', false, s.dirsWarn)}${h && h.ws != null ? pinWind(h, s) : ''}</div>`,
       popup: `<div class="pop"><b>${esc(s.name)}</b><span class="dim">${Math.round(s.elev)} m · ${dirsText(s.dirs)}</span><span><span class="pill st-${state}">${t().state[state]}</span> ${stars(hour === 'day' ? sum.rating : 0)}</span>${info ? `<span>${info}</span>` : ''}<a href="${hrefFor(s, di)}">${t().mapOpen} →</a></div>`,
     };
   });
@@ -880,10 +883,10 @@ function siteHead(site, di = 0) {
     site.custom ? `<button type="button" class="icon-btn" data-act="edit-site" data-id="${esc(site.id)}" aria-label="${t().edit}" title="${t().edit}">${IC.edit}</button>` : '',
   ].join('');
   return `<section class="site-head">
-    ${rose(site.dirs, 'rose-big', true)}
+    ${rose(site.dirs, 'rose-big', true, site.dirsWarn)}
     <div>
       <h1>${esc(site.name)}</h1>
-      <p>${site.point ? t().ground(Math.round(site.elev)) : t().launch(Math.round(site.elev))}${site.dirs.length ? ` · ${t().faces}: <b>${dirsText(site.dirs)}</b>` : ''}</p>
+      <p>${site.point ? t().ground(Math.round(site.elev)) : t().launch(Math.round(site.elev))}${site.dirs.length ? ` · ${t().faces}: <b>${dirsText(site.dirs)}</b>` : ''}${site.dirsWarn?.length ? ` · ${t().facesWarn}: ${dirsText(site.dirsWarn)}` : ''}</p>
       ${site.point ? `<p class="warn">${t().pointNote}</p>` : ''}
       ${site.check ? `<p class="warn">${t().check}</p>` : ''}
       ${site.note ? `<p>${esc(tr(site.note))}</p>` : ''}
@@ -1022,7 +1025,7 @@ function hourlyTable(site, hours, sel) {
   const cls = (h) => (h.hour === sel ? ' class="sel"' : '');
   const windCls = (h) => {
     let c = h.ws > p.wind ? 'v-bad' : h.ws > p.wind * 0.8 ? 'v-warn' : 'v-ok';
-    if (h.ws >= 5 && site.dirs?.length) { const off = M.offAngle(h.wd, site.dirs); if (off > 45) c = 'v-bad'; else if (off > 22.5 && c === 'v-ok') c = 'v-warn'; }
+    if (h.ws >= 5 && site.dirs?.length) { const dc = M.dirClass(h.wd, site); if (dc >= 2) c = 'v-bad'; else if (dc === 1 && c === 'v-ok') c = 'v-warn'; }
     return c;
   };
   const w = (ws, wd, c) => (ws == null ? '<span class="dim">–</span>' : `<span class="wind ${c}">${arrow(wd)}${wNum(ws)}</span>`);

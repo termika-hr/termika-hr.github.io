@@ -36,6 +36,7 @@ export const STR = {
     allSites: 'Sva mjesta',
     launch: (m) => `Start ${m} m n.v.`,
     faces: 'Vjetar za start',
+    facesWarn: 'uz oprez',
     check: 'Smjer starta nije potvrđen u izvoru. Provjeri kod instruktora ili lokalnog kluba.',
     source: 'Izvor',
     allSites: 'Sva mjesta, 7 dana',
@@ -146,7 +147,7 @@ export const STR = {
     helpTitle: 'Kako Termika računa',
     help: [
       '<b>Boje.</b> Zeleno znači da nijedno pravilo ispod nije prekršeno. Žuto znači da je nešto blizu granice. Crveno znači da postoji barem jedan razlog protiv leta. Dan je zelen ako ima barem dva zelena sata zaredom.',
-      '<b>Vjetar na startu</b> je vjetar modela na 10 m iznad tla. Modeli izglađuju planine, pa na grebenu zna puhati jače nego što piše. <b>Vjetar u zraku</b> je najjači vjetar od starta do vrha termike, a barem do 800 m iznad starta. <b>Zavjetrina</b>: ako 400 m iznad starta vjetar puše s leđa, iza grebena se stvara rotor čak i kad na startu lagano puše u lice.',
+      '<b>Smjer vjetra</b>: na startovima s klupskim podacima zeleni smjerovi na ruži su dobri, žuti znače oprez, a vjetar iz ostalih je bočni ili leđni (isto kao u klupskoj mreži). Na ostalim startovima dobro je do 22,5° od smjera starta, a oprez do 45°. <b>Vjetar na startu</b> je vjetar modela na 10 m iznad tla. Modeli izglađuju planine, pa na grebenu zna puhati jače nego što piše. <b>Vjetar u zraku</b> je najjači vjetar od starta do vrha termike, a barem do 800 m iznad starta. <b>Zavjetrina</b>: ako 400 m iznad starta vjetar puše s leđa, iza grebena se stvara rotor čak i kad na startu lagano puše u lice.',
       '<b>Baza kumulusa</b> = 125 m × (temperatura − rosište) iznad starta. <b>Vrh termike</b>: zrak sa starta dižemo po suhoj adijabati (9,8 °C na km) dok ne postane hladniji od okolnog zraka. Ako prije toga dođe do baze, nastaje kumulus i vrh termike je baza. <b>Jačina termike</b> je Deardorffova brzina w*, uz pretpostavku da 30 % sunčevog zračenja grije zrak. To je gruba procjena. U retku baze <b>plavo</b> znači plavu termiku: zrak se diže, ali stane ispod baze, pa nema kumulusa koji bi pokazivali gdje je termika. <b>Bez Cu</b> znači isto, ali ispod oblačnog neba od drugih oblaka. Crtica znači da tog sata nema termike.',
       '<b>Rizik grmljavine</b>: CAPE iznad 500 J/kg ili kumulus deblji od 2,5 km je upozorenje. CAPE iznad 1500 J/kg ili oblak viši od 5 km znači ne leti.',
       '<b>Magla i vidljivost</b>: ako model za taj sat javlja maglu ili vidljivost ispod 1 km, sat je crven. Vrijednost vrijedi za dolinu oko starta, a ne za sam start, pa je start ponekad iznad magle, ali se u magli ne može sigurno sletjeti. Vidljivost ispod 1,5 km je ispod minimuma za let po vidu (VFR), a ispod 5 km je upozorenje. Modeli maglu predviđaju slabije od vjetra, pa ujutro provjeri web kamere.',
@@ -322,6 +323,7 @@ export const STR = {
     allSites: 'All sites',
     launch: (m) => `Launch ${m} m ASL`,
     faces: 'Launch wind',
+    facesWarn: 'with caution',
     check: 'The launch direction isn’t confirmed by a source. Check with your instructor or the local club.',
     source: 'Source',
     allSites: 'All sites, 7 days',
@@ -432,7 +434,7 @@ export const STR = {
     helpTitle: 'How Termika works it out',
     help: [
       '<b>Colours.</b> Green means none of the rules below is broken. Amber means something is near a limit. Red means at least one reason not to fly. A day is green when it has at least two green hours in a row.',
-      '<b>Launch wind</b> is the model wind 10 m above ground. Models smooth out mountains, so a ridge can be windier than shown. <b>Wind aloft</b> is the strongest wind from launch to the thermal top, and at least up to 800 m above launch. <b>Lee side</b>: if the wind 400 m above launch blows from behind, a rotor forms behind the ridge even when launch has a light headwind.',
+      '<b>Wind direction</b>: on launches with club data the green directions on the rose are good, yellow means caution, and wind from anywhere else is cross or behind (as in the club network). On other launches up to 22.5° from the launch direction is good and up to 45° caution. <b>Launch wind</b> is the model wind 10 m above ground. Models smooth out mountains, so a ridge can be windier than shown. <b>Wind aloft</b> is the strongest wind from launch to the thermal top, and at least up to 800 m above launch. <b>Lee side</b>: if the wind 400 m above launch blows from behind, a rotor forms behind the ridge even when launch has a light headwind.',
       '<b>Cumulus base</b> = 125 m × (temperature − dew point) above launch. <b>Thermal top</b>: air from launch is lifted along the dry adiabat (9.8 °C per km) until it is colder than the air around it. If it reaches the base first, a cumulus forms and the thermal top is the base. <b>Thermal strength</b> is the Deardorff velocity w*, assuming 30% of the sunshine heats the air. Treat it as a rough estimate. In the base row, <b>blue</b> means blue thermals: the air rises but stops below the base, so no cumulus shows where the thermals are. <b>No Cu</b> means the same under an overcast sky from other clouds. A dash means no thermals that hour.',
       '<b>Thunderstorm risk</b>: CAPE above 500 J/kg or a cumulus deeper than 2.5 km is a warning. CAPE above 1500 J/kg or a cloud top above 5 km means don’t fly.',
       '<b>Fog and visibility</b>: if the model shows fog or visibility under 1 km for an hour, the hour is red. The value is for the valley around the launch, not the launch itself, so the launch may be above the fog, but you can’t land safely in fog. Visibility under 1.5 km is below the minimum for visual flight (VFR); under 5 km is a warning. Models forecast fog less well than wind, so check webcams in the morning.',
