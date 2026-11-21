@@ -9,7 +9,8 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // Forecasts are kept for an hour: the models update every 1–6 hours, and Open-Meteo's free tier
 // allows a limited number of requests per day for each internet connection.
-const TTL = 60 * 60 * 1000;
+// Forecasts are kept 2 hours: the models themselves update every 3-6 hours.
+const TTL = 2 * 60 * 60 * 1000;
 // Recently opened sites stay in memory, so going back and forth costs no new requests.
 const recent = { dt: new Map(), ens: new Map(), gr: new Map(), ov: new Map() };
 function remember(map, key, val) { map.delete(key); map.set(key, val); if (map.size > 8) map.delete(map.keys().next().value); }
@@ -191,6 +192,34 @@ function siteKey(s) { return [s.id, s.lat, s.lon, s.elev, (s.dirs || []).join(''
 // free Open-Meteo requests a day per connection, so the last three models stay in memory (the
 // last one also on the phone): switching back to a model costs nothing for an hour.
 const OV_KEEP = 3;
+// For the main models GitHub prepares the forecast of all built-in sites every ~2 hours
+// (tools/overview.py), so the list and the map cost no Open-Meteo requests: only the pilot's own
+// sites (or a site moved since) are asked for. Older than 4 hours, the app asks Open-Meteo.
+const PREPARED = ['chmi_aladin_seamless', 'icon_seamless'];
+const PREP_MAX_AGE = 4 * 3600e3, PREP_CHECK = 30 * 60e3;
+const fkey = (s) => `${s.lat.toFixed(4)},${s.lon.toFixed(4)},${Math.round(s.elev)}`;
+async function preparedOverview(sites, model) {
+  if (!PREPARED.includes(model)) return null;
+  let doc;
+  try {
+    const r = await fetch(`data/ov/${model}.json`, { cache: 'no-cache' });
+    if (!r.ok) return null;
+    doc = await r.json();
+  } catch (e) { return null; }
+  const t = Date.parse(doc.generated);
+  if (!(Date.now() - t < PREP_MAX_AGE)) return null;
+  const byKey = new Map(doc.keys.map((k, i) => [k, doc.raw[i]]));
+  const raw = sites.map((s) => byKey.get(fkey(s)) || null);
+  const missing = sites.filter((s, i) => !raw[i]);
+  let limited = false;
+  if (missing.length) {
+    try {
+      const extra = await M.fetchForecast(missing, [model]);
+      let j = 0; raw.forEach((x, i) => { if (!x) raw[i] = extra[j++]; });
+    } catch (e) { limited = e.status === 429; } // those sites stay empty; the rest is shown
+  }
+  return { t, raw, limited };
+}
 async function loadOverview(force = false) {
   const sites = allSites();
   const key = S.model + '#' + sites.map(siteKey).join('|');
@@ -198,17 +227,18 @@ async function loadOverview(force = false) {
   const cached = recent.ov.get(key) || (saved && saved.key === key ? saved : null);
   if (cached) {
     if (!S.ov || S.ov.t !== cached.t || S.ov.model !== cached.model) applyOv(cached);
-    if (!force && Date.now() - cached.t < TTL) { S.ovStatus = 'ok'; render(); return; }
+    if (!force && Date.now() - (cached.at ?? cached.t) < (cached.prep ? PREP_CHECK : TTL)) { S.ovStatus = 'ok'; render(); return; }
   }
   S.ovStatus = 'loading'; render();
   try {
-    const raw = await M.fetchForecast(sites, [S.model]);
-    const c = { key, t: Date.now(), model: S.model, ids: sites.map((s) => s.id), raw };
+    const prep = await preparedOverview(sites, S.model);
+    const raw = prep ? prep.raw : await M.fetchForecast(sites, [S.model]);
+    const c = { key, t: prep ? prep.t : Date.now(), at: Date.now(), prep: !!prep, model: S.model, ids: sites.map((s) => s.id), raw };
     store.set('ov', c);
     recent.ov.delete(key); recent.ov.set(key, c);
     if (recent.ov.size > OV_KEEP) recent.ov.delete(recent.ov.keys().next().value);
     applyOv(c);
-    S.ovStatus = 'ok'; S.ovError = null; S.limitHit = false;
+    S.ovStatus = 'ok'; S.ovError = null; S.limitHit = !!(prep && prep.limited);
   } catch (e) {
     S.ovStatus = 'error'; S.ovError = e.message || String(e);
     if (e.status === 429) S.limitHit = true;
@@ -221,7 +251,7 @@ async function loadOverview(force = false) {
 function applyOv(c) {
   const parsed = {};
   c.ids.forEach((id, i) => { if (c.raw[i]) parsed[id] = M.parseLocation(c.raw[i], c.model); });
-  S.ov = { t: c.t, model: c.model, parsed, days: {} };
+  S.ov = { t: c.t, at: c.at ?? c.t, prep: !!c.prep, model: c.model, parsed, days: {} };
   analyzeOv();
 }
 function analyzeOv() {
@@ -1586,7 +1616,7 @@ loadObs();
 loadClub();
 setInterval(() => {
   if (document.visibilityState !== 'visible') return;
-  if (S.ov && Date.now() - S.ov.t > TTL) loadOverview();
+  if (S.ov && Date.now() - S.ov.at > (S.ov.prep ? PREP_CHECK : TTL)) loadOverview();
   if (!S.obsAt || Date.now() - S.obsAt > 10 * 60 * 1000) loadObs();
   if (!S.clubAt || Date.now() - S.clubAt > 5 * 60 * 1000) loadClub();
 }, 60 * 1000);

@@ -4,7 +4,7 @@ export const LEVELS = [1000, 975, 950, 925, 900, 850, 800, 700, 600, 500];
 const LEVEL_VARS = ['temperature', 'relative_humidity', 'wind_speed', 'wind_direction', 'geopotential_height'];
 const SURFACE_VARS = [
   'temperature_2m', 'dew_point_2m', 'wind_speed_10m', 'wind_direction_10m', 'wind_gusts_10m',
-  'cape', 'lifted_index', 'shortwave_radiation', 'cloud_cover', 'cloud_cover_low',
+  'cape', 'shortwave_radiation', 'cloud_cover', 'cloud_cover_low',
   'precipitation', 'precipitation_probability', 'weather_code', 'visibility',
 ];
 
@@ -253,7 +253,7 @@ export function parseLocation(loc, model) {
       time, utc: loc.utc_offset_seconds != null ? Date.parse(time + 'Z') - loc.utc_offset_seconds * 1000 : Date.parse(time),
       T: cols.temperature_2m[i], Td: cols.dew_point_2m[i],
       ws: cols.wind_speed_10m[i], wd: cols.wind_direction_10m[i], gust: cols.wind_gusts_10m[i],
-      cape: cols.cape[i], li: cols.lifted_index[i], sw: cols.shortwave_radiation[i],
+      cape: cols.cape[i], sw: cols.shortwave_radiation[i],
       cc: cols.cloud_cover[i], ccl: cols.cloud_cover_low[i],
       pr: cols.precipitation[i], pp: cols.precipitation_probability[i],
       code: cols.weather_code[i], vis: cols.visibility[i],
