@@ -11,7 +11,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 // allows a limited number of requests per day for each internet connection.
 const TTL = 60 * 60 * 1000;
 // Recently opened sites stay in memory, so going back and forth costs no new requests.
-const recent = { dt: new Map(), ens: new Map(), gr: new Map() };
+const recent = { dt: new Map(), ens: new Map(), gr: new Map(), ov: new Map() };
 function remember(map, key, val) { map.delete(key); map.set(key, val); if (map.size > 8) map.delete(map.keys().next().value); }
 const APP_URL = 'https://termika-hr.github.io/';
 
@@ -187,12 +187,17 @@ function hrefFor(site, day = 0) {
 // ---------- data ----------
 function siteKey(s) { return [s.id, s.lat, s.lon, s.elev, (s.dirs || []).join('')].join(':'); }
 
+// The forecast for all sites with the main model. One download weighs about 200 of the 10,000
+// free Open-Meteo requests a day per connection, so the last three models stay in memory (the
+// last one also on the phone): switching back to a model costs nothing for an hour.
+const OV_KEEP = 3;
 async function loadOverview(force = false) {
   const sites = allSites();
   const key = S.model + '#' + sites.map(siteKey).join('|');
-  const cached = store.get('ov', null);
-  if (cached && cached.key === key) {
-    if (!S.ov || S.ov.t !== cached.t) applyOv(cached);
+  const saved = store.get('ov', null);
+  const cached = recent.ov.get(key) || (saved && saved.key === key ? saved : null);
+  if (cached) {
+    if (!S.ov || S.ov.t !== cached.t || S.ov.model !== cached.model) applyOv(cached);
     if (!force && Date.now() - cached.t < TTL) { S.ovStatus = 'ok'; render(); return; }
   }
   S.ovStatus = 'loading'; render();
@@ -200,11 +205,16 @@ async function loadOverview(force = false) {
     const raw = await M.fetchForecast(sites, [S.model]);
     const c = { key, t: Date.now(), model: S.model, ids: sites.map((s) => s.id), raw };
     store.set('ov', c);
+    recent.ov.delete(key); recent.ov.set(key, c);
+    if (recent.ov.size > OV_KEEP) recent.ov.delete(recent.ov.keys().next().value);
     applyOv(c);
     S.ovStatus = 'ok'; S.ovError = null; S.limitHit = false;
   } catch (e) {
     S.ovStatus = 'error'; S.ovError = e.message || String(e);
     if (e.status === 429) S.limitHit = true;
+    // The new model couldn't come: stay with the model whose forecast is on screen, so the
+    // name next to "Model" and the data always match.
+    if (S.ov && S.ov.model !== S.model) { S.model = S.ov.model; store.set('model', S.model); }
   }
   render();
 }
@@ -471,7 +481,7 @@ function header(r) {
       ${S.ovStatus === 'loading' ? `<span>${t().loading}</span>` : ''}
     </div>
   </div>
-  ${S.limitHit && !S.limitHidden ? `<div class="banner banner-row" role="status"><span>${S.ov ? t().limitBanner(timeStr(S.ov.t)) : t().limitBannerNone}</span><button type="button" class="btn small" data-act="limit-hide">${t().ok}</button></div>` : S.limitHit ? '' : S.ovStatus === 'error' ? `<div class="banner ${S.ov ? '' : 'err'}" role="status">${S.ov ? t().stale(timeStr(S.ov.t)) : t().error(esc(S.ovError))}</div>` : ''}`;
+  ${S.limitHit && !S.limitHidden ? `<div class="banner banner-row" role="status"><span>${S.ov ? t().limitBanner(timeStr(S.ov.t), M.MODELS[S.ov.model]?.label || '') : t().limitBannerNone}</span><button type="button" class="btn small" data-act="limit-hide">${t().ok}</button></div>` : S.limitHit ? '' : S.ovStatus === 'error' ? `<div class="banner ${S.ov ? '' : 'err'}" role="status">${S.ov ? t().stale(timeStr(S.ov.t)) : t().error(esc(S.ovError))}</div>` : ''}`;
 }
 
 function footer() {
